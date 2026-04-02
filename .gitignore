@@ -1,0 +1,10 @@
+node_modules/
+.next/
+config/
+*.db
+*.db-wal
+*.db-shm
+filedrop.config.json
+.env
+.env.local
+.DS_Store
