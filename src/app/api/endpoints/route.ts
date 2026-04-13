@@ -51,6 +51,7 @@ export async function POST(request: Request) {
       allowRetrieval: body.allowRetrieval || false,
       sftp: body.sftp || undefined,
       poll: body.poll || undefined,
+      notifications: body.notifications || undefined,
       createdAt: new Date().toISOString(),
     };
 

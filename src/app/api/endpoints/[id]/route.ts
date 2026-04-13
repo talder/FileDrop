@@ -40,6 +40,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   if (body.allowRetrieval !== undefined) ep.allowRetrieval = body.allowRetrieval;
   if (body.sftp !== undefined) ep.sftp = body.sftp;
   if (body.poll !== undefined) ep.poll = body.poll;
+  if (body.notifications !== undefined) ep.notifications = body.notifications;
   ep.updatedAt = new Date().toISOString();
 
   endpoints[idx] = ep;

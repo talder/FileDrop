@@ -53,6 +53,9 @@ export default function EndpointsPage() {
   const [fPollInterval, setFPollInterval] = useState("60");
   const [fPollSource, setFPollSource] = useState("");
   const [fPollDelete, setFPollDelete] = useState(false);
+  // Notifications
+  const [fNotifyOn, setFNotifyOn] = useState<"none" | "failures" | "all">("none");
+  const [fNotifyEmail, setFNotifyEmail] = useState("");
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
@@ -82,7 +85,8 @@ export default function EndpointsPage() {
     setFExtensions(""); setFMaxSize(""); setFEnabled(true); setFNamingPreset(1); setFNamingMask("");
     setFAllowRetrieval(false); setFSftpHost(""); setFSftpPort("22"); setFSftpUser(""); setFSftpPass("");
     setFSftpPath(""); setFSftpDir("pull"); setFPollEnabled(false); setFPollInterval("60");
-    setFPollSource(""); setFPollDelete(false); setFormError("");
+    setFPollSource(""); setFPollDelete(false);
+    setFNotifyOn("none"); setFNotifyEmail(""); setFormError("");
     setShowModal(true);
   };
 
@@ -107,6 +111,7 @@ export default function EndpointsPage() {
     // Polling
     setFPollEnabled(e.poll?.enabled || false); setFPollInterval(String(e.poll?.intervalSeconds || 60));
     setFPollSource(e.poll?.sourcePath || ""); setFPollDelete(e.poll?.deleteAfterTransfer || false);
+    setFNotifyOn(e.notifications?.on || "none"); setFNotifyEmail(e.notifications?.email || "");
     setFormError("");
     setShowModal(true);
   };
@@ -130,6 +135,11 @@ export default function EndpointsPage() {
       body.poll = { enabled: true, intervalSeconds: Math.max(10, parseInt(fPollInterval) || 60), sourcePath: fPollSource || undefined, deleteAfterTransfer: fPollDelete };
     } else {
       body.poll = { enabled: false, intervalSeconds: 60, deleteAfterTransfer: false };
+    }
+    if (fNotifyOn !== "none" && fNotifyEmail) {
+      body.notifications = { on: fNotifyOn, email: fNotifyEmail };
+    } else {
+      body.notifications = { on: "none", email: "" };
     }
     const url = editTarget ? `/api/endpoints/${editTarget.id}` : "/api/endpoints";
     const method = editTarget ? "PUT" : "POST";
@@ -332,6 +342,24 @@ export default function EndpointsPage() {
                           <span className="text-sm text-text-secondary">Delete source files after transfer</span>
                         </div>
                       </>
+                    )}
+                  </div>
+                  {/* Email Notifications */}
+                  <div className="p-3 rounded-lg border border-border space-y-3">
+                    <p className="text-xs font-semibold text-text-muted uppercase">Email Notifications</p>
+                    <div>
+                      <label className="input-label">Notify on</label>
+                      <select className="select" value={fNotifyOn} onChange={(e) => setFNotifyOn(e.target.value as "none" | "failures" | "all")}>
+                        <option value="none">Disabled</option>
+                        <option value="failures">Failures only</option>
+                        <option value="all">All uploads (success + failure)</option>
+                      </select>
+                    </div>
+                    {fNotifyOn !== "none" && (
+                      <div>
+                        <label className="input-label">Email Address</label>
+                        <input className="input" type="email" value={fNotifyEmail} onChange={(e) => setFNotifyEmail(e.target.value)} placeholder="alerts@example.com" />
+                      </div>
                     )}
                   </div>
                   {formError && <p className="text-sm text-red-500">{formError}</p>}

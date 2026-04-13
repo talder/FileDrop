@@ -14,11 +14,13 @@
     "test": "node --test tests/**/*.test.ts"
   },
   "dependencies": {
+    "@types/nodemailer": "^8.0.0",
     "@types/ssh2": "^1.15.5",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.6.2",
     "lucide-react": "^0.577.0",
     "next": "^16.0.0",
+    "nodemailer": "^8.0.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "ssh2": "^1.17.0"

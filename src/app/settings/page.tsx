@@ -11,7 +11,7 @@ import type { SanitizedUser, AppSettings, DEFAULT_SETTINGS } from "@/lib/types";
 export default function SettingsPage() {
   const router = useRouter();
   const [user, setUser] = useState<SanitizedUser | null>(null);
-  const [tab, setTab] = useState<"general" | "users" | "security">("general");
+  const [tab, setTab] = useState<"general" | "users" | "security" | "email">("general");
 
   // General settings
   const [appName, setAppName] = useState("FileDrop");
@@ -30,6 +30,18 @@ export default function SettingsPage() {
 
   // Security
   const [rateLimit, setRateLimit] = useState("60");
+
+  // Email / SMTP
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState("587");
+  const [smtpSecure, setSmtpSecure] = useState(false);
+  const [smtpUser, setSmtpUser] = useState("");
+  const [smtpPass, setSmtpPass] = useState("");
+  const [smtpFrom, setSmtpFrom] = useState("");
+  const [smtpAdmin, setSmtpAdmin] = useState("");
+  const [smtpTestTo, setSmtpTestTo] = useState("");
+  const [smtpTestResult, setSmtpTestResult] = useState<string | null>(null);
+  const [smtpSaved, setSmtpSaved] = useState(false);
 
   useEffect(() => {
     fetch("/api/auth/me").then((r) => r.json()).then((d) => {
@@ -52,7 +64,14 @@ export default function SettingsPage() {
     fetch("/api/users").then((r) => r.json()).then((u) => setUsers(Array.isArray(u) ? u : []));
   }, []);
 
-  useEffect(() => { if (user) { fetchSettings(); fetchUsers(); } }, [user, fetchSettings, fetchUsers]);
+  const fetchSmtp = useCallback(() => {
+    fetch("/api/settings/smtp").then((r) => r.json()).then((s) => {
+      setSmtpHost(s.host || ""); setSmtpPort(String(s.port || 587)); setSmtpSecure(s.secure || false);
+      setSmtpUser(s.user || ""); setSmtpPass(s.pass || ""); setSmtpFrom(s.from || ""); setSmtpAdmin(s.adminEmail || "");
+    });
+  }, []);
+
+  useEffect(() => { if (user) { fetchSettings(); fetchUsers(); fetchSmtp(); } }, [user, fetchSettings, fetchUsers, fetchSmtp]);
 
   const handleSaveSettings = async () => {
     await fetch("/api/settings", {
@@ -110,6 +129,7 @@ export default function SettingsPage() {
             <button className={`tab ${tab === "general" ? "active" : ""}`} onClick={() => setTab("general")}>General</button>
             <button className={`tab ${tab === "users" ? "active" : ""}`} onClick={() => setTab("users")}>Users</button>
             <button className={`tab ${tab === "security" ? "active" : ""}`} onClick={() => setTab("security")}>Security</button>
+            <button className={`tab ${tab === "email" ? "active" : ""}`} onClick={() => setTab("email")}>Email</button>
           </div>
 
           {tab === "general" && (
@@ -193,6 +213,44 @@ export default function SettingsPage() {
               <button className="btn btn-primary" onClick={handleSaveSettings}>
                 <Save className="w-4 h-4" /> {saved ? "Saved!" : "Save Settings"}
               </button>
+            </div>
+          )}
+          {tab === "email" && (
+            <div className="max-w-lg space-y-4">
+              <p className="text-sm text-text-muted">Configure SMTP to send email notifications when files are uploaded or fail. Set notification preferences per endpoint.</p>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2"><label className="input-label">SMTP Host</label><input className="input" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} placeholder="smtp.example.com" /></div>
+                <div><label className="input-label">Port</label><input className="input" type="number" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} /></div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button className={`toggle ${smtpSecure ? "active" : ""}`} onClick={() => setSmtpSecure(!smtpSecure)}><span className="toggle-knob" /></button>
+                <span className="text-sm text-text-secondary">Use TLS/SSL</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="input-label">Username</label><input className="input" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} /></div>
+                <div><label className="input-label">Password</label><input className="input" type="password" value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} /></div>
+              </div>
+              <div><label className="input-label">From Address</label><input className="input" value={smtpFrom} onChange={(e) => setSmtpFrom(e.target.value)} placeholder="filedrop@example.com" /></div>
+              <div><label className="input-label">Admin Email (for system alerts)</label><input className="input" value={smtpAdmin} onChange={(e) => setSmtpAdmin(e.target.value)} placeholder="admin@example.com" /></div>
+              <div className="flex gap-2">
+                <button className="btn btn-primary" onClick={async () => {
+                  await fetch("/api/settings/smtp", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ host: smtpHost, port: parseInt(smtpPort), secure: smtpSecure, user: smtpUser, pass: smtpPass, from: smtpFrom, adminEmail: smtpAdmin }) });
+                  setSmtpSaved(true); setTimeout(() => setSmtpSaved(false), 2000);
+                }}><Save className="w-4 h-4" /> {smtpSaved ? "Saved!" : "Save SMTP"}</button>
+              </div>
+              <div className="p-4 border border-border rounded-lg space-y-3 mt-4">
+                <p className="text-xs font-semibold text-text-muted uppercase">Test Email</p>
+                <div className="flex gap-2">
+                  <input className="input flex-1" value={smtpTestTo} onChange={(e) => setSmtpTestTo(e.target.value)} placeholder="test@example.com" />
+                  <button className="btn btn-secondary" onClick={async () => {
+                    setSmtpTestResult(null);
+                    const res = await fetch("/api/settings/smtp/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: smtpTestTo }) });
+                    const d = await res.json();
+                    setSmtpTestResult(res.ok ? "Test email sent!" : d.error || "Failed");
+                  }}>Send Test</button>
+                </div>
+                {smtpTestResult && <p className={`text-sm ${smtpTestResult.includes("sent") ? "text-green-600" : "text-red-500"}`}>{smtpTestResult}</p>}
+              </div>
             </div>
           )}
         </div>

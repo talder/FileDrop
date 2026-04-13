@@ -8,6 +8,8 @@ import { logFileUpload } from "@/lib/file-log";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logConnection, resolveHostname } from "@/lib/connection-log";
 import { applyFilenameMask } from "@/lib/file-naming";
+import { auditLog } from "@/lib/audit";
+import { sendFileNotification } from "@/lib/email";
 import type { DropEndpoint, FileNaming } from "@/lib/types";
 
 const ENDPOINTS_FILE = "endpoints.json";
@@ -169,10 +171,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
       const logId = logFileUpload({ timestamp: new Date().toISOString(), filename, originalFilename: originalName, fileSize: fileEntry.size, mimeType: fileEntry.type || "", sourceIp, sourceHostname: hostname, apiKeyId: apiKey.id, apiKeyPartyName: apiKey.partyName, endpointSlug: slug, destinationPath: destPath, destinationName: dest.name, status: "success" });
       results.push({ filename, originalFilename: originalName, size: fileEntry.size, id: logId });
+
+      auditLog({ actor: apiKey.partyName, action: "file.upload", targetType: "endpoint", targetId: slug, details: { filename, originalFilename: originalName, size: fileEntry.size }, sourceIp });
+
+      // Email notification
+      if (endpoint.notifications?.on === "all" && endpoint.notifications.email) {
+        sendFileNotification({ to: endpoint.notifications.email, endpointSlug: slug, event: "upload", filename, originalFilename: originalName, fileSize: fileEntry.size, party: apiKey.partyName, sourceIp });
+      }
     } catch (err) {
       const msg = `Write failed: ${(err as Error).message}`;
       errors.push(msg);
       logFileUpload({ timestamp: new Date().toISOString(), filename: originalName, originalFilename: originalName, fileSize: fileEntry.size, mimeType: fileEntry.type || "", sourceIp, sourceHostname: hostname, apiKeyId: apiKey.id, apiKeyPartyName: apiKey.partyName, endpointSlug: slug, destinationPath: destPath, destinationName: dest.name, status: "failed", errorMessage: msg });
+
+      auditLog({ actor: apiKey.partyName, action: "file.upload.failed", targetType: "endpoint", targetId: slug, details: { filename: originalName, error: msg }, sourceIp });
+
+      // Email notification on failure
+      if (endpoint.notifications?.on !== "none" && endpoint.notifications?.email) {
+        sendFileNotification({ to: endpoint.notifications.email, endpointSlug: slug, event: "failed", filename: originalName, originalFilename: originalName, fileSize: fileEntry.size, party: apiKey.partyName, sourceIp, errorMessage: msg });
+      }
     }
   }
 

@@ -119,6 +119,13 @@ export interface DropEndpoint {
   sftp?: SftpConfig;
   /** Polling configuration (pull files on interval) */
   poll?: PollConfig;
+  /** Email notification config */
+  notifications?: {
+    /** Email address to send notifications to */
+    email: string;
+    /** When to send: "all" = every upload, "failures" = only failures, "none" = disabled */
+    on: "all" | "failures" | "none";
+  };
   createdAt: string;
   updatedAt?: string;
 }
