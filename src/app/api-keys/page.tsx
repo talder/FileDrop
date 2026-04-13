@@ -86,8 +86,33 @@ export default function ApiKeysPage() {
     fetchData();
   };
 
-  const copyKey = () => {
-    if (generatedKey) { navigator.clipboard.writeText(generatedKey); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+  const [toast, setToast] = useState<string | null>(null);
+
+  const copyKey = async () => {
+    if (!generatedKey) return;
+    try {
+      // Try modern clipboard API first
+      await navigator.clipboard.writeText(generatedKey);
+      setCopied(true);
+      setToast("API key copied to clipboard!");
+    } catch {
+      // Fallback: create a temporary textarea
+      const ta = document.createElement("textarea");
+      ta.value = generatedKey;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+        setCopied(true);
+        setToast("API key copied to clipboard!");
+      } catch {
+        setToast("Copy failed — please select and copy manually");
+      }
+      document.body.removeChild(ta);
+    }
+    setTimeout(() => { setCopied(false); setToast(null); }, 3000);
   };
 
   const toggleEndpoint = (slug: string) => {
@@ -164,12 +189,17 @@ export default function ApiKeysPage() {
                         <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                         <p className="text-sm text-amber-800">Copy this key now. It will <strong>not</strong> be shown again.</p>
                       </div>
-                      <div className="copy-box">
+                      <div className="copy-box" onClick={copyKey} style={{ cursor: "pointer" }} title="Click to copy">
                         <span className="flex-1 select-all">{generatedKey}</span>
-                        <button className="btn btn-ghost btn-sm flex-shrink-0" onClick={copyKey}>
+                        <button className="btn btn-ghost btn-sm flex-shrink-0" onClick={(e) => { e.stopPropagation(); copyKey(); }}>
                           {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                         </button>
                       </div>
+                      {toast && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-200 text-sm text-green-700">
+                          <Check className="w-4 h-4" /> {toast}
+                        </div>
+                      )}
                     </>
                   ) : (
                     <>

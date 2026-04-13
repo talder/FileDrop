@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Globe, FolderOpen, KeyRound, Settings, Wifi, Shield } from "lucide-react";
+import { LayoutDashboard, Globe, FolderOpen, KeyRound, Settings, Wifi, Shield, BookOpen } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/",              label: "Dashboard",      icon: LayoutDashboard },
@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/api-keys",      label: "API Keys",       icon: KeyRound },
   { href: "/connections",   label: "Connections",    icon: Wifi },
   { href: "/audit-log",     label: "Audit Log",      icon: Shield },
+  { href: "/documentation", label: "Docs",            icon: BookOpen },
   { href: "/settings",      label: "Settings",       icon: Settings },
 ];
 

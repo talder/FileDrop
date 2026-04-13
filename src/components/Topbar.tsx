@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Sun, Moon, LogOut, User, ChevronDown, Wifi, Shield } from "lucide-react";
+import { Sun, Moon, LogOut, User, ChevronDown, Wifi, Shield, BookOpen } from "lucide-react";
 import { useTheme, isLightTheme, THEMES, type Theme } from "@/components/ThemeProvider";
 import type { SanitizedUser } from "@/lib/types";
 
@@ -119,6 +119,9 @@ export default function Topbar({ user, onLogout }: TopbarProps) {
                 Signed in as <strong className="text-text-primary">{user?.username}</strong>
               </div>
               <div className="dropdown-divider" />
+              <button className="dropdown-item" onClick={() => { setUserMenuOpen(false); router.push("/documentation"); }}>
+                <BookOpen className="w-4 h-4" /> Documentation
+              </button>
               <button className="dropdown-item" onClick={() => { setUserMenuOpen(false); router.push("/connections"); }}>
                 <Wifi className="w-4 h-4" /> Connection Log
               </button>
