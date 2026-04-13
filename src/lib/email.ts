@@ -77,7 +77,9 @@ export async function sendFileNotification(opts: {
   const { to, endpointSlug, event, filename, originalFilename, fileSize, party, sourceIp, errorMessage } = opts;
   if (!to) return;
 
-  const sizeMB = (fileSize / 1024 / 1024).toFixed(2);
+  const sizeStr = fileSize < 1024 ? `${fileSize} B`
+    : fileSize < 1024 * 1024 ? `${(fileSize / 1024).toFixed(1)} KB`
+    : `${(fileSize / 1024 / 1024).toFixed(2)} MB`;
   const eventLabel = event === "upload" ? "File Uploaded" : event === "download" ? "File Downloaded" : "Upload Failed";
   const color = event === "failed" ? "#dc2626" : event === "upload" ? "#16a34a" : "#2563eb";
   const time = new Date().toISOString().replace("T", " ").substring(0, 19);
@@ -93,7 +95,7 @@ export async function sendFileNotification(opts: {
           <tr><td style="padding: 6px 8px; color: #6b7280;">Endpoint</td><td style="padding: 6px 8px; font-weight: 600;">${endpointSlug}</td></tr>
           <tr><td style="padding: 6px 8px; color: #6b7280;">Original File</td><td style="padding: 6px 8px;">${originalFilename}</td></tr>
           ${filename !== originalFilename ? `<tr><td style="padding: 6px 8px; color: #6b7280;">Saved As</td><td style="padding: 6px 8px; font-family: monospace; font-size: 12px;">${filename}</td></tr>` : ""}
-          <tr><td style="padding: 6px 8px; color: #6b7280;">Size</td><td style="padding: 6px 8px;">${sizeMB} MB</td></tr>
+          <tr><td style="padding: 6px 8px; color: #6b7280;">Size</td><td style="padding: 6px 8px;">${sizeStr}</td></tr>
           <tr><td style="padding: 6px 8px; color: #6b7280;">Party</td><td style="padding: 6px 8px;">${party}</td></tr>
           <tr><td style="padding: 6px 8px; color: #6b7280;">Source IP</td><td style="padding: 6px 8px; font-family: monospace;">${sourceIp}</td></tr>
           <tr><td style="padding: 6px 8px; color: #6b7280;">Time</td><td style="padding: 6px 8px;">${time} UTC</td></tr>
