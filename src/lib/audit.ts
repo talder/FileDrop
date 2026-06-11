@@ -1,4 +1,5 @@
 import { getDb } from "./config";
+import { forwardToVictoriaLogs } from "./victorialog";
 import type { AuditLogEntry } from "./types";
 
 /**
@@ -26,6 +27,16 @@ export function auditLog(opts: {
     typeof opts.details === "string" ? opts.details : opts.details ? JSON.stringify(opts.details) : null,
     opts.sourceIp || "",
   );
+
+  forwardToVictoriaLogs("audit", {
+    message: `${opts.actor} ${opts.action}`,
+    actor: opts.actor,
+    action: opts.action,
+    targetType: opts.targetType || "",
+    targetId: opts.targetId || "",
+    details: typeof opts.details === "string" ? opts.details : opts.details ? JSON.stringify(opts.details) : undefined,
+    sourceIp: opts.sourceIp || "",
+  });
 }
 
 /** Helper to extract IP from a request */

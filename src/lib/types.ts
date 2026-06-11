@@ -67,39 +67,20 @@ export const FILE_NAMING_PRESETS: { label: string; mode: FileNaming["mode"]; mas
 
 // === Drop Endpoints ===
 
-export type EndpointType = "api" | "sftp" | "sftp-server";
-
-export interface SftpConfig {
-  host: string;
-  port: number;
-  username: string;
-  /** AES-256-GCM encrypted password */
-  passwordEncrypted?: string;
-  /** PEM private key (stored as-is, not encrypted — consider using key files) */
-  privateKey?: string;
-  /** Remote directory path */
-  remotePath: string;
-  /** "pull" = fetch files FROM remote, "push" = send files TO remote */
-  direction: "pull" | "push";
-}
-
-export interface PollConfig {
-  /** Whether polling is enabled */
-  enabled: boolean;
-  /** Interval in seconds (minimum 10) */
-  intervalSeconds: number;
-  /** For non-SFTP: path to poll for new files */
-  sourcePath?: string;
-  /** Delete source files after successful transfer */
-  deleteAfterTransfer: boolean;
-}
+/**
+ * Endpoint types are slug-based, externally reachable surfaces:
+ *   "api"         → HTTP upload/download at /api/drop/{slug}
+ *   "sftp-server" → external parties connect INTO the embedded SFTP server
+ * Outbound/remote SFTP movement lives in the separate Transfers feature.
+ */
+export type EndpointType = "api" | "sftp-server";
 
 export interface DropEndpoint {
   id: string;
   /** URL slug, e.g. "invoices" → /api/drop/invoices */
   slug: string;
   description: string;
-  /** Endpoint type: "api" (HTTP upload) or "sftp" */
+  /** Endpoint type: "api" (HTTP upload) or "sftp-server" (inbound SFTP) */
   type: EndpointType;
   /** ID of the destination to write files to */
   destinationId: string;
@@ -115,10 +96,6 @@ export interface DropEndpoint {
   fileNaming: FileNaming;
   /** Whether API key holders can retrieve/download files */
   allowRetrieval: boolean;
-  /** SFTP configuration (only when type === "sftp") */
-  sftp?: SftpConfig;
-  /** Polling configuration (pull files on interval) */
-  poll?: PollConfig;
   /** Email notification config */
   notifications?: {
     /** Email address to send notifications to */
@@ -128,6 +105,128 @@ export interface DropEndpoint {
   };
   createdAt: string;
   updatedAt?: string;
+}
+
+// === SFTP Servers (reusable remote connections) ===
+
+/**
+ * A saved, reusable SFTP server FileDrop connects OUT to. Referenced by
+ * Transfers via connectionId. The remote path and direction are NOT stored
+ * here — they belong to each Transfer.
+ */
+export interface SftpConnection {
+  id: string;
+  /** Human label, e.g. "SAP PE2" */
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  /** AES-256-GCM encrypted password (ENC:iv:authTag:ciphertext) */
+  passwordEncrypted?: string;
+  /** PEM private key (stored as-is) */
+  privateKey?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+/** Connection params subset used by the low-level SFTP client. */
+export type SftpConnectionParams = Pick<
+  SftpConnection,
+  "host" | "port" | "username" | "passwordEncrypted" | "privateKey"
+>;
+
+// === Transfers (SFTP jobs — no slug) ===
+
+export type TransferDirection = "pull" | "push";
+
+/** How files are selected on the source side. */
+export type TransferSelectionMode = "all" | "single" | "glob" | "list";
+
+export interface TransferSelection {
+  mode: TransferSelectionMode;
+  /** single: exact filename; glob: wildcard pattern e.g. "*.xml" */
+  value?: string;
+  /** list: explicit filenames */
+  list?: string[];
+  /** Optional extension filter applied on top of the mode, e.g. [".xml"] */
+  extensions?: string[];
+  /** Recurse into subdirectories (folder / glob modes) */
+  recursive?: boolean;
+}
+
+export type TransferScheduleUnit = "seconds" | "minutes" | "hours" | "days";
+
+export interface TransferSchedule {
+  /** Whether the transfer runs automatically */
+  enabled: boolean;
+  /** Interval count (>= 1) */
+  every: number;
+  /** Interval unit */
+  unit: TransferScheduleUnit;
+  /** Time of day "HH:MM" (only meaningful for unit === "days") */
+  atTime?: string;
+}
+
+/** What to do when the target already has a file with the same name. */
+export type TransferConflictPolicy = "overwrite" | "rename" | "skip";
+
+export interface Transfer {
+  id: string;
+  /** Human label, e.g. "POM inbound" */
+  name: string;
+  description: string;
+  /** Whether the transfer is active (schedulable / runnable) */
+  enabled: boolean;
+  /** Reusable SFTP server this transfer uses */
+  connectionId: string;
+  /** "pull" = remote → destination, "push" = destination → remote */
+  direction: TransferDirection;
+  /** Remote directory on the SFTP server (source for pull, target for push) */
+  remotePath: string;
+  /** Local destination (target for pull, source for push) */
+  destinationId: string;
+  /** Subdirectory within the destination (optional) */
+  subdirectory?: string;
+  /** Which files to move */
+  selection: TransferSelection;
+  /** Naming applied to files written to the target */
+  fileNaming: FileNaming;
+  /** What to do on target filename conflicts */
+  conflictPolicy: TransferConflictPolicy;
+  /** Delete each source file after it is transferred successfully */
+  deleteSourceAfterTransfer: boolean;
+  /** Automatic run schedule */
+  schedule: TransferSchedule;
+  /** Email notification config */
+  notifications?: {
+    email: string;
+    on: "all" | "failures" | "none";
+  };
+  createdAt: string;
+  updatedAt?: string;
+  /** Last run summary (denormalized for list display) */
+  lastRunAt?: string;
+  lastStatus?: TransferRunStatus;
+  lastError?: string;
+}
+
+export type TransferRunStatus = "success" | "partial" | "failed" | "running";
+export type TransferTrigger = "manual" | "schedule";
+
+export interface TransferRun {
+  id: number;
+  transferId: string;
+  transferName: string;
+  direction: TransferDirection;
+  trigger: TransferTrigger;
+  startedAt: string;
+  finishedAt?: string;
+  status: TransferRunStatus;
+  filesTotal: number;
+  filesOk: number;
+  filesFailed: number;
+  bytes: number;
+  errorMessage?: string;
 }
 
 // === API Keys ===
@@ -214,6 +313,14 @@ export interface AppSettings {
   sftpServerEnabled: boolean;
   /** Embedded SFTP server: listen port */
   sftpServerPort: number;
+  /** VictoriaLogs: forward all events (uploads, transfers, connections, audit) */
+  victoriaLogsEnabled: boolean;
+  /** VictoriaLogs: target host/IP */
+  victoriaLogsHost: string;
+  /** VictoriaLogs: target port (syslog 514, HTTP JSON 9428) */
+  victoriaLogsPort: number;
+  /** VictoriaLogs: ingestion transport */
+  victoriaLogsProtocol: "http" | "syslog-udp" | "syslog-tcp";
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -224,4 +331,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   allowedOrigins: [],
   sftpServerEnabled: false,
   sftpServerPort: 2222,
+  victoriaLogsEnabled: true,
+  victoriaLogsHost: "vxvictorialog01",
+  victoriaLogsPort: 514,
+  victoriaLogsProtocol: "syslog-udp",
 };

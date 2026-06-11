@@ -1,14 +1,6 @@
-import { describe, it, before, after } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-
-// Set up a temp config dir so tests don't pollute the real one
 import path from "path";
-import fs from "fs";
-const TEST_DIR = path.join(__dirname, ".test-config");
-process.env.NODE_ENV = "test";
-
-// We need to set cwd to a temp location for config.ts
-// Since config.ts uses process.cwd(), we test the library functions directly
 
 describe("API Key Generation", () => {
   it("should generate a key with fd_ prefix", async () => {

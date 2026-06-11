@@ -31,6 +31,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Slug must contain only lowercase letters, numbers, and hyphens" }, { status: 400 });
     }
 
+    const type = body.type === "sftp-server" ? "sftp-server" : "api";
+
     const endpoints = await readJsonConfig<DropEndpoint[]>(ENDPOINTS_FILE, []);
 
     if (endpoints.some((e) => e.slug === slug)) {
@@ -41,7 +43,7 @@ export async function POST(request: Request) {
       id: randomUUID(),
       slug,
       description: description || "",
-      type: body.type || "api",
+      type,
       destinationId,
       subdirectory: subdirectory || undefined,
       allowedExtensions: Array.isArray(allowedExtensions) ? allowedExtensions : [],
@@ -49,8 +51,6 @@ export async function POST(request: Request) {
       enabled: enabled !== false,
       fileNaming: body.fileNaming || { mode: "mask", mask: "{YYYY}{MM}{DD}-{HH}{mm}{ss}_{UUID8}_{ORIGINAL}{EXT}" },
       allowRetrieval: body.allowRetrieval || false,
-      sftp: body.sftp || undefined,
-      poll: body.poll || undefined,
       notifications: body.notifications || undefined,
       createdAt: new Date().toISOString(),
     };

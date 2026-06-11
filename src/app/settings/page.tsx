@@ -11,7 +11,7 @@ import type { SanitizedUser, AppSettings, DEFAULT_SETTINGS } from "@/lib/types";
 export default function SettingsPage() {
   const router = useRouter();
   const [user, setUser] = useState<SanitizedUser | null>(null);
-  const [tab, setTab] = useState<"general" | "users" | "security" | "email">("general");
+  const [tab, setTab] = useState<"general" | "users" | "security" | "email" | "logging">("general");
 
   // General settings
   const [appName, setAppName] = useState("FileDrop");
@@ -43,6 +43,14 @@ export default function SettingsPage() {
   const [smtpTestResult, setSmtpTestResult] = useState<string | null>(null);
   const [smtpSaved, setSmtpSaved] = useState(false);
 
+  // Logging / VictoriaLogs
+  const [vlEnabled, setVlEnabled] = useState(true);
+  const [vlHost, setVlHost] = useState("");
+  const [vlPort, setVlPort] = useState("514");
+  const [vlProtocol, setVlProtocol] = useState<"http" | "syslog-udp" | "syslog-tcp">("syslog-udp");
+  const [vlTestResult, setVlTestResult] = useState<string | null>(null);
+  const [vlSaved, setVlSaved] = useState(false);
+
   useEffect(() => {
     fetch("/api/auth/me").then((r) => r.json()).then((d) => {
       if (d.needsSetup) router.replace("/setup");
@@ -57,6 +65,10 @@ export default function SettingsPage() {
       setMaxFileSize(String((s.maxFileSize || 52428800) / 1024 / 1024));
       setRetentionDays(String(s.fileRetentionDays || 0));
       setRateLimit(String(s.rateLimitPerKey || 60));
+      setVlEnabled(s.victoriaLogsEnabled ?? true);
+      setVlHost(s.victoriaLogsHost || "");
+      setVlPort(String(s.victoriaLogsPort || 514));
+      setVlProtocol(s.victoriaLogsProtocol || "syslog-udp");
     });
   }, []);
 
@@ -83,6 +95,18 @@ export default function SettingsPage() {
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleSaveLogging = async () => {
+    await fetch("/api/settings", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        victoriaLogsEnabled: vlEnabled, victoriaLogsHost: vlHost,
+        victoriaLogsPort: parseInt(vlPort) || 514, victoriaLogsProtocol: vlProtocol,
+      }),
+    });
+    setVlSaved(true);
+    setTimeout(() => setVlSaved(false), 2000);
   };
 
   const handleAddUser = async () => {
@@ -130,6 +154,7 @@ export default function SettingsPage() {
             <button className={`tab ${tab === "users" ? "active" : ""}`} onClick={() => setTab("users")}>Users</button>
             <button className={`tab ${tab === "security" ? "active" : ""}`} onClick={() => setTab("security")}>Security</button>
             <button className={`tab ${tab === "email" ? "active" : ""}`} onClick={() => setTab("email")}>Email</button>
+            <button className={`tab ${tab === "logging" ? "active" : ""}`} onClick={() => setTab("logging")}>Logging</button>
           </div>
 
           {tab === "general" && (
@@ -251,6 +276,38 @@ export default function SettingsPage() {
                 </div>
                 {smtpTestResult && <p className={`text-sm ${smtpTestResult.includes("sent") ? "text-green-600" : "text-red-500"}`}>{smtpTestResult}</p>}
               </div>
+            </div>
+          )}
+          {tab === "logging" && (
+            <div className="max-w-lg space-y-4">
+              <p className="text-sm text-text-muted">Forward all FileDrop events (uploads, transfers, connections, audit actions) to a VictoriaLogs server. Best-effort: logging never blocks or fails requests.</p>
+              <div className="flex items-center gap-2">
+                <button className={`toggle ${vlEnabled ? "active" : ""}`} onClick={() => setVlEnabled(!vlEnabled)}><span className="toggle-knob" /></button>
+                <span className="text-sm text-text-secondary">Enable VictoriaLogs forwarding</span>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2"><label className="input-label">Host</label><input className="input" value={vlHost} onChange={(e) => setVlHost(e.target.value)} placeholder="vxvictorialog01" /></div>
+                <div><label className="input-label">Port</label><input className="input" type="number" value={vlPort} onChange={(e) => setVlPort(e.target.value)} /></div>
+              </div>
+              <div>
+                <label className="input-label">Protocol</label>
+                <select className="input" value={vlProtocol} onChange={(e) => setVlProtocol(e.target.value as "http" | "syslog-udp" | "syslog-tcp")}>
+                  <option value="syslog-udp">Syslog (UDP)</option>
+                  <option value="syslog-tcp">Syslog (TCP)</option>
+                  <option value="http">HTTP JSON (port 9428)</option>
+                </select>
+                <p className="text-xs text-text-muted mt-1">Syslog uses port 514; the HTTP JSON API uses port 9428.</p>
+              </div>
+              <div className="flex gap-2">
+                <button className="btn btn-primary" onClick={handleSaveLogging}><Save className="w-4 h-4" /> {vlSaved ? "Saved!" : "Save Logging"}</button>
+                <button className="btn btn-secondary" onClick={async () => {
+                  setVlTestResult(null);
+                  const res = await fetch("/api/settings/victorialogs/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ host: vlHost, port: parseInt(vlPort) || 514, protocol: vlProtocol }) });
+                  const d = await res.json();
+                  setVlTestResult(d.success ? "Test event sent!" : d.error || "Failed");
+                }}>Send Test</button>
+              </div>
+              {vlTestResult && <p className={`text-sm ${vlTestResult.includes("sent") ? "text-green-600" : "text-red-500"}`}>{vlTestResult}</p>}
             </div>
           )}
         </div>

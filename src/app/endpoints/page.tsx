@@ -6,7 +6,7 @@ import { Plus, Pencil, Trash2, Copy, Globe, X, Check } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
-import type { SanitizedUser, DropEndpoint, DestinationType, EndpointType, FileNaming, FILE_NAMING_PRESETS as _FNP } from "@/lib/types";
+import type { SanitizedUser, DropEndpoint, DestinationType, EndpointType, FileNaming } from "@/lib/types";
 
 const FILE_NAMING_PRESETS = [
   { label: "Keep original", mode: "original" as const, mask: "" },
@@ -41,18 +41,6 @@ export default function EndpointsPage() {
   const [fNamingPreset, setFNamingPreset] = useState(1); // index in PRESETS
   const [fNamingMask, setFNamingMask] = useState("");
   const [fAllowRetrieval, setFAllowRetrieval] = useState(false);
-  // SFTP
-  const [fSftpHost, setFSftpHost] = useState("");
-  const [fSftpPort, setFSftpPort] = useState("22");
-  const [fSftpUser, setFSftpUser] = useState("");
-  const [fSftpPass, setFSftpPass] = useState("");
-  const [fSftpPath, setFSftpPath] = useState("");
-  const [fSftpDir, setFSftpDir] = useState<"pull" | "push">("pull");
-  // Polling
-  const [fPollEnabled, setFPollEnabled] = useState(false);
-  const [fPollInterval, setFPollInterval] = useState("60");
-  const [fPollSource, setFPollSource] = useState("");
-  const [fPollDelete, setFPollDelete] = useState(false);
   // Notifications
   const [fNotifyOn, setFNotifyOn] = useState<"none" | "failures" | "all">("none");
   const [fNotifyEmail, setFNotifyEmail] = useState("");
@@ -83,9 +71,7 @@ export default function EndpointsPage() {
     setEditTarget(null);
     setFSlug(""); setFDesc(""); setFType("api"); setFDestId(destinations[0]?.id || ""); setFSubdir("");
     setFExtensions(""); setFMaxSize(""); setFEnabled(true); setFNamingPreset(1); setFNamingMask("");
-    setFAllowRetrieval(false); setFSftpHost(""); setFSftpPort("22"); setFSftpUser(""); setFSftpPass("");
-    setFSftpPath(""); setFSftpDir("pull"); setFPollEnabled(false); setFPollInterval("60");
-    setFPollSource(""); setFPollDelete(false);
+    setFAllowRetrieval(false);
     setFNotifyOn("none"); setFNotifyEmail(""); setFormError("");
     setShowModal(true);
   };
@@ -104,13 +90,6 @@ export default function EndpointsPage() {
       if (idx >= 0) { setFNamingPreset(idx); setFNamingMask(""); }
       else { setFNamingPreset(5); setFNamingMask(fn.mask); } // Custom
     }
-    // SFTP
-    setFSftpHost(e.sftp?.host || ""); setFSftpPort(String(e.sftp?.port || 22));
-    setFSftpUser(e.sftp?.username || ""); setFSftpPass(""); setFSftpPath(e.sftp?.remotePath || "");
-    setFSftpDir(e.sftp?.direction || "pull");
-    // Polling
-    setFPollEnabled(e.poll?.enabled || false); setFPollInterval(String(e.poll?.intervalSeconds || 60));
-    setFPollSource(e.poll?.sourcePath || ""); setFPollDelete(e.poll?.deleteAfterTransfer || false);
     setFNotifyOn(e.notifications?.on || "none"); setFNotifyEmail(e.notifications?.email || "");
     setFormError("");
     setShowModal(true);
@@ -128,14 +107,6 @@ export default function EndpointsPage() {
       allowedExtensions: exts, maxFileSize: fMaxSize ? parseFloat(fMaxSize) * 1024 * 1024 : 0, enabled: fEnabled,
       fileNaming, allowRetrieval: fAllowRetrieval,
     };
-    if (fType === "sftp") {
-      body.sftp = { host: fSftpHost, port: parseInt(fSftpPort) || 22, username: fSftpUser, remotePath: fSftpPath, direction: fSftpDir, ...(fSftpPass ? { passwordEncrypted: fSftpPass } : {}) };
-    }
-    if (fPollEnabled) {
-      body.poll = { enabled: true, intervalSeconds: Math.max(10, parseInt(fPollInterval) || 60), sourcePath: fPollSource || undefined, deleteAfterTransfer: fPollDelete };
-    } else {
-      body.poll = { enabled: false, intervalSeconds: 60, deleteAfterTransfer: false };
-    }
     if (fNotifyOn !== "none" && fNotifyEmail) {
       body.notifications = { on: fNotifyOn, email: fNotifyEmail };
     } else {
@@ -191,7 +162,7 @@ export default function EndpointsPage() {
             <div className="empty-state">
               <Globe className="empty-state-icon" />
               <p className="empty-state-title">No endpoints configured</p>
-              <p className="empty-state-description">Create drop endpoints where external parties can upload files.</p>
+              <p className="empty-state-description">Create drop endpoints where external parties can upload files. To move files to/from a remote SFTP server, use Transfers instead.</p>
             </div>
           ) : (
             <table className="data-table">
@@ -209,10 +180,10 @@ export default function EndpointsPage() {
                           </button>
                         </div>
                       </td>
-                      <td><span className={`badge ${e.type === "sftp" ? "badge-warning" : "badge-info"}`}>{(e.type || "api").toUpperCase()}</span></td>
+                      <td><span className={`badge ${e.type === "sftp-server" ? "badge-warning" : "badge-info"}`}>{e.type === "sftp-server" ? "SFTP SERVER" : "API"}</span></td>
                       <td className="text-xs text-text-muted">{e.description || "—"}</td>
                       <td className="text-xs">{dest?.name || "Unknown"}</td>
-                      <td className="text-xs">{e.fileNaming?.mode === "original" ? "Original" : "Mask"}{e.poll?.enabled ? " + Poll" : ""}{e.allowRetrieval ? " + Get" : ""}</td>
+                      <td className="text-xs">{e.fileNaming?.mode === "original" ? "Original" : "Mask"}{e.allowRetrieval ? " + Get" : ""}</td>
                       <td>
                         <button onClick={() => toggleEnabled(e)} className={`badge ${e.enabled ? "badge-success" : "badge-danger"}`} style={{ cursor: "pointer" }}>
                           {e.enabled ? "Active" : "Disabled"}
@@ -271,35 +242,13 @@ export default function EndpointsPage() {
                     <label className="input-label">Endpoint Type</label>
                     <select className="select" value={fType} onChange={(e) => setFType(e.target.value as EndpointType)}>
                       <option value="api">HTTP API (upload/download)</option>
-                      <option value="sftp">SFTP Client (connect to remote)</option>
                       <option value="sftp-server">SFTP Server (parties connect here)</option>
                     </select>
                     {fType === "sftp-server" && (
                       <p className="text-xs text-text-muted mt-1">External parties connect via SFTP to your server and drop files into <code>/{fSlug || "slug"}/</code>. They authenticate with their API key as password.</p>
                     )}
+                    <p className="text-xs text-text-muted mt-1">Moving files to/from a remote SFTP server is configured under <strong>Transfers</strong>.</p>
                   </div>
-
-                  {/* SFTP config */}
-                  {fType === "sftp" && (
-                    <div className="p-3 rounded-lg border border-border space-y-3">
-                      <p className="text-xs font-semibold text-text-muted uppercase">SFTP Configuration</p>
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="col-span-2"><label className="input-label">Host</label><input className="input" value={fSftpHost} onChange={(e) => setFSftpHost(e.target.value)} placeholder="sftp.example.com" /></div>
-                        <div><label className="input-label">Port</label><input className="input" type="number" value={fSftpPort} onChange={(e) => setFSftpPort(e.target.value)} /></div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div><label className="input-label">Username</label><input className="input" value={fSftpUser} onChange={(e) => setFSftpUser(e.target.value)} /></div>
-                        <div><label className="input-label">Password</label><input className="input" type="password" value={fSftpPass} onChange={(e) => setFSftpPass(e.target.value)} placeholder={editTarget ? "(keep)" : ""} /></div>
-                      </div>
-                      <div><label className="input-label">Remote Path</label><input className="input" value={fSftpPath} onChange={(e) => setFSftpPath(e.target.value)} placeholder="/uploads" /></div>
-                      <div><label className="input-label">Direction</label>
-                        <select className="select" value={fSftpDir} onChange={(e) => setFSftpDir(e.target.value as "pull" | "push")}>
-                          <option value="pull">Pull (fetch files FROM remote)</option>
-                          <option value="push">Push (send files TO remote)</option>
-                        </select>
-                      </div>
-                    </div>
-                  )}
 
                   {/* File Naming */}
                   <div>
@@ -325,25 +274,6 @@ export default function EndpointsPage() {
                     </div>
                   </div>
 
-                  {/* Polling */}
-                  <div className="p-3 rounded-lg border border-border space-y-3">
-                    <div className="flex items-center gap-2">
-                      <button className={`toggle ${fPollEnabled ? "active" : ""}`} onClick={() => setFPollEnabled(!fPollEnabled)}><span className="toggle-knob" /></button>
-                      <span className="text-sm font-medium text-text-secondary">Enable polling</span>
-                    </div>
-                    {fPollEnabled && (
-                      <>
-                        <div><label className="input-label">Poll Interval (seconds, min 10)</label><input className="input" type="number" value={fPollInterval} onChange={(e) => setFPollInterval(e.target.value)} /></div>
-                        {fType !== "sftp" && (
-                          <div><label className="input-label">Source Path to Poll</label><input className="input" value={fPollSource} onChange={(e) => setFPollSource(e.target.value)} placeholder="/path/to/watch" /></div>
-                        )}
-                        <div className="flex items-center gap-2">
-                          <button className={`toggle ${fPollDelete ? "active" : ""}`} onClick={() => setFPollDelete(!fPollDelete)}><span className="toggle-knob" /></button>
-                          <span className="text-sm text-text-secondary">Delete source files after transfer</span>
-                        </div>
-                      </>
-                    )}
-                  </div>
                   {/* Email Notifications */}
                   <div className="p-3 rounded-lg border border-border space-y-3">
                     <p className="text-xs font-semibold text-text-muted uppercase">Email Notifications</p>

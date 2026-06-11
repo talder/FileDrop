@@ -1,5 +1,6 @@
 import { promises as dns } from "dns";
 import { getDb } from "./config";
+import { forwardToVictoriaLogs } from "./victorialog";
 import type { ConnectionLogEntry } from "./types";
 
 /** Cache reverse DNS lookups for 10 minutes */
@@ -32,6 +33,22 @@ export function logConnection(entry: Omit<ConnectionLogEntry, "id">): void {
   `).run(
     entry.timestamp, entry.sourceIp, entry.hostname, entry.method, entry.path,
     entry.statusCode, entry.apiKeyId, entry.partyName, entry.userAgent, entry.responseTimeMs,
+  );
+
+  forwardToVictoriaLogs(
+    "connection",
+    {
+      message: `${entry.method} ${entry.path} ${entry.statusCode}`,
+      sourceIp: entry.sourceIp,
+      hostname: entry.hostname,
+      method: entry.method,
+      path: entry.path,
+      statusCode: entry.statusCode,
+      party: entry.partyName,
+      userAgent: entry.userAgent,
+      responseTimeMs: entry.responseTimeMs,
+    },
+    entry.statusCode >= 400 ? "warn" : "info",
   );
 }
 
