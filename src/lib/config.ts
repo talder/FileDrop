@@ -124,6 +124,25 @@ export function getDb(): BetterSqlite3.Database {
     CREATE INDEX IF NOT EXISTS idx_transfer_runs_tid ON transfer_runs(transfer_id);
   `);
 
+  // Integration runs table (run-level history for integration pipelines)
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS integration_runs (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      integration_id   TEXT NOT NULL,
+      integration_name TEXT NOT NULL DEFAULT '',
+      trigger          TEXT NOT NULL DEFAULT '',
+      started_at       TEXT NOT NULL,
+      finished_at      TEXT,
+      status           TEXT NOT NULL DEFAULT 'running',
+      files_total      INTEGER NOT NULL DEFAULT 0,
+      files_ok         INTEGER NOT NULL DEFAULT 0,
+      files_failed     INTEGER NOT NULL DEFAULT 0,
+      error_message    TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_integration_runs_ts  ON integration_runs(started_at);
+    CREATE INDEX IF NOT EXISTS idx_integration_runs_iid ON integration_runs(integration_id);
+  `);
+
   // Migration: add new columns to file_log if missing
   try {
     _db.exec(`ALTER TABLE file_log ADD COLUMN source_hostname TEXT NOT NULL DEFAULT ''`);

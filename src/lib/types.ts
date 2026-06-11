@@ -297,6 +297,121 @@ export interface ConnectionLogEntry {
   responseTimeMs: number;
 }
 
+// === SOAP Connections ===
+
+/**
+ * A saved SOAP/HTTP endpoint. Used by Integrations as the outbound call target.
+ */
+export interface SoapConnection {
+  id: string;
+  /** Human label, e.g. "SAP FMIS" */
+  name: string;
+  /** Full endpoint URL including port, e.g. "https://host:8443/sap/bc/srt/..." */
+  url: string;
+  username: string;
+  /** AES-256-GCM encrypted password (ENC:iv:authTag:ciphertext) */
+  passwordEncrypted?: string;
+  /** HTTP SOAPAction header value; use empty string if none required */
+  soapAction: string;
+  /**
+   * "raw"      → the source file IS the complete SOAP envelope
+   * "template" → wrap the file content in `envelopeTemplate` at `{PAYLOAD}`
+   */
+  envelopeMode: "raw" | "template";
+  /** SOAP envelope template with `{PAYLOAD}` placeholder (envelopeMode === "template") */
+  envelopeTemplate?: string;
+  /** When true, strip outer Envelope/Body before saving; when false, save full response */
+  extractBody: boolean;
+  /** Skip TLS certificate verification (e.g. self-signed internal certs) */
+  ignoreTlsErrors: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// === FTP Connections ===
+
+/**
+ * A saved FTP/FTPS server FileDrop pushes files OUT to. Referenced by
+ * Integrations via ftpConnectionId.
+ */
+export interface FtpConnection {
+  id: string;
+  /** Human label, e.g. "Ultimo FTP" */
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  /** AES-256-GCM encrypted password (ENC:iv:authTag:ciphertext) */
+  passwordEncrypted?: string;
+  /** Use FTPS (FTP over TLS) */
+  secure: boolean;
+  /** Skip TLS certificate verification */
+  ignoreTlsErrors: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// === Integrations ===
+
+/**
+ * A pipeline job that:
+ *   1. Reads XML files from a local source destination
+ *   2. POSTs each to a SOAP endpoint
+ *   3. Saves the XML response locally (optional)
+ *   4. Pushes the response to an FTP server (optional)
+ */
+export interface Integration {
+  id: string;
+  /** Human label */
+  name: string;
+  description: string;
+  enabled: boolean;
+  /** Source: local destination to read input files from */
+  sourceDestinationId: string;
+  sourceSubdirectory?: string;
+  /** Which source files to process (reuses existing TransferSelection) */
+  sourceSelection: TransferSelection;
+  /** SOAP endpoint to call */
+  soapConnectionId: string;
+  /** Where to write the SOAP response XML locally (optional) */
+  responseDestinationId?: string;
+  responseSubdirectory?: string;
+  /** Naming applied to saved response files */
+  responseFileNaming: FileNaming;
+  /** FTP server to push the response to (optional) */
+  ftpConnectionId?: string;
+  ftpRemotePath?: string;
+  /** Delete the source file after a successful run */
+  deleteSourceAfterRun: boolean;
+  /** Automatic run schedule */
+  schedule: TransferSchedule;
+  /** Email notification config */
+  notifications?: {
+    email: string;
+    on: "all" | "failures" | "none";
+  };
+  createdAt: string;
+  updatedAt?: string;
+  /** Last run summary (denormalized for list display) */
+  lastRunAt?: string;
+  lastStatus?: TransferRunStatus;
+  lastError?: string;
+}
+
+export interface IntegrationRun {
+  id: number;
+  integrationId: string;
+  integrationName: string;
+  trigger: TransferTrigger;
+  startedAt: string;
+  finishedAt?: string;
+  status: TransferRunStatus;
+  filesTotal: number;
+  filesOk: number;
+  filesFailed: number;
+  errorMessage?: string;
+}
+
 // === Settings ===
 
 export interface AppSettings {
