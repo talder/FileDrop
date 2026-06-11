@@ -6,7 +6,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "FileDrop",
   description: "Secure file drop service for external parties",
-  icons: { icon: "/favicon.ico" },
+  icons: { icon: "/favicon.svg" },
 };
 
 export default function RootLayout({
