@@ -7,6 +7,26 @@ import { useTheme, isLightTheme, type Theme } from "@/components/ThemeProvider";
 import type { SanitizedUser } from "@/lib/types";
 
 interface ThemeOption { value: Theme; label: string; swatch: string; }
+interface AppSearchItem {
+  label: string;
+  href: string;
+  keywords: string[];
+}
+interface DocItSearchResult {
+  title: string;
+  url: string;
+}
+interface DocItSearchResponse {
+  configured?: boolean;
+  results?: DocItSearchResult[];
+}
+interface SearchSuggestion {
+  id: string;
+  label: string;
+  href: string;
+  source: "app" | "docit";
+  external?: boolean;
+}
 
 const LIGHT_THEMES_OPTIONS: ThemeOption[] = [
   { value: "light",            label: "Light",             swatch: "#ffffff" },
@@ -31,13 +51,7 @@ const DARK_THEMES_OPTIONS: ThemeOption[] = [
   { value: "high-contrast-dark", label: "HC Dark",           swatch: "#000000" },
 ];
 
-interface SearchItem {
-  label: string;
-  href: string;
-  keywords: string[];
-}
-
-const SEARCH_ITEMS: SearchItem[] = [
+const APP_SEARCH_ITEMS: AppSearchItem[] = [
   { label: "Dashboard", href: "/", keywords: ["home", "stats", "activity"] },
   { label: "Endpoints", href: "/endpoints", keywords: ["drop", "http", "slug", "upload"] },
   { label: "Destinations", href: "/destinations", keywords: ["storage", "path", "data", "mount"] },
@@ -51,7 +65,6 @@ const SEARCH_ITEMS: SearchItem[] = [
   { label: "Audit Log", href: "/audit-log", keywords: ["audit", "security", "events"] },
   { label: "Settings", href: "/settings", keywords: ["config", "users", "smtp", "logging"] },
   { label: "Documentation", href: "/documentation", keywords: ["docs", "guide", "help"] },
-  { label: "Docs — File naming tags", href: "/documentation#file-naming", keywords: ["doc-it", "tags", "token", "mask", "filename"] },
 ];
 
 interface TopbarProps {
@@ -66,18 +79,37 @@ export default function Topbar({ user, onLogout }: TopbarProps) {
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMenuOpen, setSearchMenuOpen] = useState(false);
+  const [docItResults, setDocItResults] = useState<SearchSuggestion[]>([]);
+  const [docItConfigured, setDocItConfigured] = useState(true);
+  const [docItLoading, setDocItLoading] = useState(false);
   const userRef = useRef<HTMLDivElement>(null);
   const themeRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
 
-  const searchResults = useMemo(() => {
+  const appResults = useMemo<SearchSuggestion[]>(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return SEARCH_ITEMS.slice(0, 8);
-    return SEARCH_ITEMS.filter((item) => {
+    if (!query) {
+      return APP_SEARCH_ITEMS.slice(0, 8).map((item) => ({
+        id: `app:${item.href}`,
+        label: item.label,
+        href: item.href,
+        source: "app",
+      }));
+    }
+    return APP_SEARCH_ITEMS.filter((item) => {
       if (item.label.toLowerCase().includes(query)) return true;
       return item.keywords.some((kw) => kw.includes(query));
-    }).slice(0, 8);
+    }).slice(0, 8).map((item) => ({
+      id: `app:${item.href}`,
+      label: item.label,
+      href: item.href,
+      source: "app",
+    }));
   }, [searchQuery]);
+
+  const searchResults = useMemo(() => {
+    return [...appResults, ...docItResults].slice(0, 12);
+  }, [appResults, docItResults]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -89,10 +121,66 @@ export default function Topbar({ user, onLogout }: TopbarProps) {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  const navigateFromSearch = (href: string) => {
+  useEffect(() => {
+    if (!searchMenuOpen) return;
+
+    const query = searchQuery.trim();
+    if (query.length < 2) {
+      setDocItResults([]);
+      setDocItLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(async () => {
+      setDocItLoading(true);
+      try {
+        const response = await fetch(`/api/docit/search?q=${encodeURIComponent(query)}&limit=5`, {
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          setDocItResults([]);
+          return;
+        }
+
+        const payload = await response.json() as DocItSearchResponse;
+        setDocItConfigured(payload.configured !== false);
+
+        const mapped = Array.isArray(payload.results)
+          ? payload.results
+              .filter((item) => typeof item.url === "string" && item.url.length > 0)
+              .map((item) => ({
+                id: `docit:${item.url}`,
+                label: item.title || item.url,
+                href: item.url,
+                source: "docit" as const,
+                external: true,
+              }))
+          : [];
+        setDocItResults(mapped);
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") {
+          setDocItResults([]);
+        }
+      } finally {
+        if (!controller.signal.aborted) setDocItLoading(false);
+      }
+    }, 220);
+
+    return () => {
+      controller.abort();
+      clearTimeout(timeout);
+    };
+  }, [searchMenuOpen, searchQuery]);
+
+  const navigateFromSearch = (item: SearchSuggestion) => {
     setSearchMenuOpen(false);
     setSearchQuery("");
-    router.push(href);
+    if (item.external) {
+      window.open(item.href, "_blank", "noopener,noreferrer");
+      return;
+    }
+    router.push(item.href);
   };
 
   const themeIcon = isLightTheme(theme) ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />;
@@ -113,30 +201,38 @@ export default function Topbar({ user, onLogout }: TopbarProps) {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
           <input
             className="input h-9 pl-9"
-            placeholder="Search pages…"
+            placeholder="Search app + Doc-it…"
             value={searchQuery}
             onFocus={() => setSearchMenuOpen(true)}
             onChange={(e) => { setSearchQuery(e.target.value); setSearchMenuOpen(true); }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && searchResults.length > 0) {
                 e.preventDefault();
-                navigateFromSearch(searchResults[0].href);
+                navigateFromSearch(searchResults[0]);
               }
               if (e.key === "Escape") setSearchMenuOpen(false);
             }}
           />
           {searchMenuOpen && (
             <div className="dropdown-menu" style={{ left: 0, right: "auto", top: "calc(100% + 6px)", width: "100%" }}>
+              {docItLoading && <div className="px-3 py-2 text-xs text-text-muted">Searching Doc-it…</div>}
+              {!docItConfigured && searchQuery.trim().length >= 2 && (
+                <div className="px-3 py-2 text-xs text-text-muted">Doc-it API is not configured.</div>
+              )}
               {searchResults.length === 0 ? (
                 <div className="px-3 py-2 text-xs text-text-muted">No matches</div>
               ) : (
                 searchResults.map((item) => (
                   <button
-                    key={`${item.href}-${item.label}`}
+                    key={item.id}
                     className="dropdown-item"
-                    onClick={() => navigateFromSearch(item.href)}
+                    onClick={() => navigateFromSearch(item)}
                   >
-                    <Search className="w-3.5 h-3.5" /> {item.label}
+                    <Search className="w-3.5 h-3.5" />
+                    <span className="truncate">{item.label}</span>
+                    <span className="ml-auto text-[10px] uppercase tracking-wide text-text-muted">
+                      {item.source === "docit" ? "Doc-it" : "App"}
+                    </span>
                   </button>
                 ))
               )}
