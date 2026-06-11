@@ -1,7 +1,7 @@
 import { execSync } from "child_process";
 import { existsSync, mkdirSync, statSync } from "fs";
 import os from "os";
-import { readJsonConfig, writeJsonConfig } from "./config";
+import { readJsonConfig, writeJsonConfig, getConfigDir } from "./config";
 import type { Destination } from "./types";
 
 const DESTINATIONS_FILE = "destinations.json";
@@ -120,13 +120,51 @@ export function unmountPath(localPath: string): { success: boolean; error?: stri
   }
 }
 
-// ── SMB password encryption ──────────────────────────────────────────────────
+// ── Password encryption (shared by SMB, SFTP, FTP, SOAP credentials) ──────────
 
+import path from "path";
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { readFileSync, writeFileSync, chmodSync } from "fs";
 
-const ENC_KEY = process.env.FILEDROP_ENC_KEY
-  ? Buffer.from(process.env.FILEDROP_ENC_KEY, "hex")
-  : randomBytes(32); // In production, set FILEDROP_ENC_KEY as a persistent 64-char hex string
+/**
+ * Load a stable AES-256 key. Precedence:
+ *  1. FILEDROP_ENC_KEY env var (64-char hex) — recommended for production and
+ *     required when multiple instances share the same stored credentials.
+ *  2. A key file persisted under the config dir, generated once and reused so
+ *     encrypted passwords survive process restarts / reboots.
+ * Only if persisting fails do we fall back to an ephemeral key (which would, as
+ * before, make stored passwords unreadable after a restart).
+ */
+function loadOrCreateEncKey(): Buffer {
+  const fromEnv = process.env.FILEDROP_ENC_KEY;
+  if (fromEnv) {
+    const buf = Buffer.from(fromEnv, "hex");
+    if (buf.length === 32) return buf;
+    console.warn("FILEDROP_ENC_KEY is set but is not 64 hex chars; ignoring it.");
+  }
+
+  const keyPath = path.join(getConfigDir(), ".enc_key");
+  try {
+    const existing = readFileSync(keyPath, "utf8").trim();
+    const buf = Buffer.from(existing, "hex");
+    if (buf.length === 32) return buf;
+  } catch { /* key file not created yet */ }
+
+  const key = randomBytes(32);
+  try {
+    mkdirSync(getConfigDir(), { recursive: true });
+    writeFileSync(keyPath, key.toString("hex"), { mode: 0o600 });
+    try { chmodSync(keyPath, 0o600); } catch { /* best effort on some filesystems */ }
+  } catch {
+    console.warn(
+      "Could not persist encryption key; stored passwords will not survive a restart. " +
+      "Set FILEDROP_ENC_KEY to a persistent 64-char hex string.",
+    );
+  }
+  return key;
+}
+
+const ENC_KEY = loadOrCreateEncKey();
 
 export function encryptPassword(plaintext: string): string {
   const iv = randomBytes(12);
