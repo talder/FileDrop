@@ -73,6 +73,11 @@ export default function DestinationsPage() {
     setShowModal(true);
   };
 
+  const openCreateWithBrowser = () => {
+    openCreate();
+    setShowFolderBrowser(true);
+  };
+
   const openEdit = (d: DestinationRow) => {
     setEditTarget(d);
     setFName(d.name); setFType(d.type); setFLocalPath(d.localPath);
@@ -143,8 +148,12 @@ export default function DestinationsPage() {
         <div className="page-container">
           <div className="page-header">
             <h1 className="page-title">Destinations</h1>
-            <button className="btn btn-primary" onClick={openCreate}><Plus className="w-4 h-4" /> Add Destination</button>
+            <div className="flex items-center gap-2">
+              <button className="btn btn-secondary" onClick={openCreateWithBrowser}><FolderOpen className="w-4 h-4" /> Browse /DATA</button>
+              <button className="btn btn-primary" onClick={openCreate}><Plus className="w-4 h-4" /> Add Destination</button>
+            </div>
           </div>
+          <p className="mb-4 text-xs text-text-muted">Folder browser tip: click <span className="font-medium text-text-secondary">Browse /DATA</span> here, or open Add/Edit Destination and use the same button next to the path field.</p>
 
           {testResult && (
             <div className="mb-4 flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-accent-light)] text-sm text-accent-text">

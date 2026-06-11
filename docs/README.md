@@ -1,238 +1,278 @@
 # FileDrop
+FileDrop is a self-hosted file exchange and automation service built with Next.js. It supports:
+- inbound file delivery from external parties (HTTP and embedded SFTP),
+- outbound SFTP transfer jobs (pull/push),
+- SOAP integration pipelines with optional FTP/FTPS delivery,
+- operational logging, auditing, and admin management in one UI.
 
-A secure web service for receiving files from external parties via HTTP and for moving files to/from SFTP servers. Features a management UI for configuring drop endpoints, SFTP transfers, file destinations (local, NFS, SMB), users, and API keys.
+## Core capabilities
+- **Drop endpoints** (`/api/drop/{slug}`) for external parties to upload files with API keys.
+- **Embedded SFTP server** for inbound file delivery, authenticated with API keys.
+- **Reusable remote connections**:
+  - SFTP servers (used by Transfers),
+  - SOAP endpoints (used by Integrations),
+  - FTP/FTPS servers (optional delivery target for Integrations).
+- **Transfers** for SFTP pull/push automation with selection rules, naming rules, conflict handling, and scheduler support.
+- **Integrations** that read source files, POST to SOAP, optionally save responses locally, optionally deliver to FTP/FTPS, and optionally delete source files after success.
+- **Destinations** backed by Local paths, NFS, or SMB/CIFS (including mount/unmount and accessibility testing).
+- **Local folder browser** for selecting destination paths under `/DATA`.
+- **API key lifecycle** (generate, scoped access, revoke/delete, optional expiry).
+- **User/session lifecycle** (setup, login/logout, admin-managed users, lockout/unlock, password reset).
+- **Observability**:
+  - file activity log,
+  - connection log,
+  - audit log,
+  - transfer and integration run history,
+  - optional VictoriaLogs forwarding.
 
-## Features
-
-- **Named drop endpoints** — Create URLs like `/api/drop/invoices` for external parties to upload files over HTTP
-- **SFTP Servers** — Save reusable SFTP connections (host, port, username, password/private key) once and reference them from any transfer
-- **Transfers** — Move files from or to an SFTP server (no slug required): pull remote files into a destination, or push files from a destination to a remote server. Supports file selection, conflict policy, scheduling, and manual runs
-- **Inbound SFTP server** — Accept files pushed by external parties to FileDrop's embedded SFTP server (configured as an `sftp-server` endpoint)
-- **Flexible destinations** — Store files on local disk, NFS shares, or SMB/CIFS shares
-- **/DATA folder browser** — Pick destination local paths from the UI by browsing folders under `/DATA`
-- **Secure API keys** — Cryptographically generated keys (SHA-256 hashed), scoped to specific endpoints
-- **Dashboard** — Real-time file activity log, stats, and mount health indicators
-- **User management** — Local user accounts with bcrypt passwords, account lockout
-- **VictoriaLogs forwarding** — Optionally ship all events (uploads, transfers, connections, audit actions) to a VictoriaLogs server via syslog (UDP/TCP) or HTTP
-- **17 themes** — Light and dark theme variants (matching doc-it UI)
-- **Reverse proxy ready** — Works behind nginx, Apache, or Caddy
-- **Configurable limits** — Max file size (global + per-endpoint), rate limiting, file extension filtering
-
-## Quick Start
-
+## Quick start
 ### Prerequisites
+- Node.js >= 24
+- npm >= 10
 
-- Node.js >= 24.0.0
-- npm >= 10.0.0
-
-### Installation
-
+### Install and run
 ```bash
 git clone <repo-url> FileDrop
 cd FileDrop
 npm install
-```
-
-### Development
-
-```bash
 npm run dev
 ```
 
-Open http://localhost:3000. On first visit, you'll be prompted to create an admin account.
+Open `http://localhost:3000`.
+On first launch, create the initial admin via `/setup`.
 
 ### Production
-
 ```bash
 npm run build
 npm start
 ```
 
-## Configuration
+## UI pages and routes
+| Path | Purpose |
+|---|---|
+| `/` | Dashboard: daily/total file stats, endpoint/key counts, recent file activity |
+| `/endpoints` | Manage drop endpoints (slug, type, destination, limits, retrieval, notifications, naming) |
+| `/destinations` | Manage local/NFS/SMB destinations, test, mount/unmount, and browse folders under `/DATA` |
+| `/sftp-servers` | Manage reusable outbound SFTP server connections |
+| `/transfers` | Manage SFTP transfer jobs (pull/push), schedules, run now, run history |
+| `/soap-connections` | Manage reusable SOAP endpoint definitions and connection tests |
+| `/soap-endpoints` | Alias route that redirects to `/soap-connections` |
+| `/ftp-connections` | Manage reusable FTP/FTPS server definitions and connection tests |
+| `/ftp-servers` | Alias route that redirects to `/ftp-connections` |
+| `/integrations` | Manage SOAP integrations (source selection, response save, FTP delivery, schedules, runs) |
+| `/api-keys` | Generate, list, revoke, and delete API keys |
+| `/connections` | Connection log (request-level visibility of inbound activity) |
+| `/audit-log` | Audit trail for auth/admin/configuration actions |
+| `/settings` | Tabs: General, Users, Security, Email, Logging |
+| `/documentation` | In-app quick reference page |
+| `/login` | User login |
+| `/setup` | First-run admin setup |
 
-### Environment Variables
+## Functional workflows
+### 1) Inbound files over HTTP
+1. Create a **Destination**.
+2. Create an **Endpoint** with slug + destination.
+3. Generate an **API key** with access to that slug.
+4. External party uploads using `POST /api/drop/{slug}` and `Authorization: Bearer fd_...`.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3000` | Server port |
-| `TRUST_PROXY` | `false` | Trust X-Forwarded-* headers |
-| `SECURE_COOKIES` | auto | Force secure cookies (`true`/`false`) |
-| `FILEDROP_ENC_KEY` | random | 64-char hex key for SMB password encryption. **Set this in production** for persistence across restarts. Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+Optional endpoint behavior:
+- extension whitelist,
+- per-endpoint max file size override,
+- file naming mode/pattern,
+- retrieval enabled (`GET /api/drop/{slug}` and `/api/drop/{slug}/{filename}`),
+- email notifications on `all` or `failures`.
 
-### In-App Settings
+### 2) Inbound files over embedded SFTP server
+- Enable the embedded SFTP server via settings data (`sftpServerEnabled`, `sftpServerPort`) through `/api/settings` or config state.
+- External party connects to FileDrop’s SFTP port.
+- Use **API key as password**.
+- Accessible SFTP directories are limited to endpoint slugs allowed by that API key.
 
-Configurable via Settings > General:
+### 3) SFTP Transfers (outbound jobs)
+- A Transfer binds:
+  - one SFTP server connection,
+  - one destination,
+  - direction (`pull` or `push`),
+  - selection + naming + conflict policy + schedule.
+- Supports manual runs and scheduled runs.
+- Stores run history and updates last-run status on each transfer row.
 
-- **Max file size** — Global default (50 MB). Can be overridden per endpoint.
-- **File retention** — Days to keep files (0 = forever).
-- **Rate limit** — Requests per minute per API key (default: 60).
+### 4) SOAP Integrations
+- An Integration binds:
+  - source destination + selection,
+  - one SOAP connection,
+  - optional local response destination + response naming,
+  - optional FTP/FTPS delivery target,
+  - optional source-file deletion after success,
+  - optional schedule and notifications.
+- Supports manual and scheduled runs with run history.
 
-Configurable via Settings > Logging (see [Event Logging](#event-logging-victorialogs)):
+## Scheduling model
+Transfers and Integrations share the same scheduling model:
+- `enabled: false` → manual only.
+- Interval mode: every `N` `seconds` / `minutes` / `hours` / `days`.
+- Daily-time support: for `days`, optional `atTime` (`HH:MM`) for fixed-time execution.
+- Minimum interval for `seconds` is **5**.
+- Changing schedule/enable state re-arms scheduler behavior.
 
-- **VictoriaLogs forwarding** — Enable/disable, host, port, and protocol (syslog UDP/TCP or HTTP JSON).
+## File selection, naming, and conflict handling
+### Selection modes
+- `all`
+- `single`
+- `glob`
+- `list`
+- optional extension filtering and optional recursion.
 
-## Architecture
+### Naming
+Modes:
+- `original`
+- `mask`
 
-### Tech Stack
+Common mask tokens:
+- `{ORIGINAL}`, `{EXT}`
+- `{YYYY}`, `{YY}`, `{MM}`, `{DD}`
+- `{HH}`, `{mm}`, `{ss}`
+- `{UUID}`, `{UUID8}`, `{SEQ}`
 
-- **Frontend**: Next.js 16 (App Router), React 19, Tailwind CSS v4
-- **Backend**: Next.js API routes (Node.js)
-- **Database**: SQLite via better-sqlite3 (KV store + tables for logs/keys)
-- **Auth**: bcrypt password hashing, httpOnly session cookies
-- **Icons**: lucide-react
+### Conflict policy (Transfers)
+- `skip`
+- `rename`
+- `overwrite`
 
-### Data Storage
+## Local folder browser (`/DATA`)
+The destination path browser is intentionally constrained to `/DATA`.
 
-- `config/filedrop.db` — SQLite database containing:
-  - `kv` table — JSON config (users, sessions, endpoints, destinations, SFTP connections, transfers, settings)
-  - `api_keys` table — API keys (SHA-256 hashed)
-  - `file_log` table — Upload / transfer audit log
-  - `transfer_runs` table — One row per transfer run (status, file counts, bytes, error)
+Where to find it:
+- **Destinations page header**: `Browse /DATA` button.
+- **Destination create/edit modal**: `Browse /DATA` next to local path / mount point.
 
-### File Upload Flow
+Behavior:
+- Shows directories only.
+- Supports child navigation, parent navigation, and root jump.
+- Rejects paths outside `/DATA`.
 
-1. External party sends `POST /api/drop/{slug}` with `Authorization: Bearer fd_...`
-2. Server validates: API key → not revoked/expired → has access to endpoint → file size/extension checks
-3. File written to the configured destination with a timestamped unique filename
-4. JSON receipt returned; entry logged to `file_log`
-
-## Pages
-
-| Path | Description |
-|------|-------------|
-| `/` | Dashboard — stats cards, file activity log |
-| `/endpoints` | Manage drop endpoints — HTTP API + inbound SFTP server (CRUD, enable/disable, copy URL) |
-| `/sftp-servers` | Manage reusable SFTP server connections (CRUD, test) |
-| `/transfers` | Manage SFTP transfers (direction, selection, schedule, conflict policy, run now, run history) |
-| `/destinations` | Manage file destinations (local/NFS/SMB, mount/unmount, browse folders under `/DATA`) |
-| `/api-keys` | Generate and manage API keys for external parties |
-| `/settings` | General settings, users, security, email, and logging config |
-| `/login` | Login page |
-| `/setup` | First-run admin creation wizard |
-
-## API Reference
-
-### Public Endpoints (API key auth)
-
+## API reference
+### Public (no auth)
 | Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/drop/{slug}` | Upload files (multipart/form-data) |
-| `GET` | `/api/health` | Health check (no auth) |
+|---|---|---|
+| `GET` | `/api/health` | Basic service status and timestamp |
 
-### Admin Endpoints (session auth)
-
+### API key auth (external parties)
 | Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/auth/login` | Login |
-| `POST` | `/api/auth/logout` | Logout |
-| `GET` | `/api/auth/me` | Current user info |
-| `POST` | `/api/auth/setup` | First-run admin creation |
-| `GET/POST` | `/api/endpoints` | List / create endpoints |
-| `GET/PUT/DELETE` | `/api/endpoints/{id}` | Get / update / delete endpoint |
-| `GET/POST` | `/api/sftp-connections` | List / create reusable SFTP connections |
-| `GET/PUT/DELETE` | `/api/sftp-connections/{id}` | Get / update / delete connection (DELETE blocked while a transfer references it) |
-| `POST` | `/api/sftp-connections/{id}/test` | Test connectivity (use `id=new` to test unsaved params) |
-| `GET/POST` | `/api/transfers` | List / create transfers |
-| `GET/PUT/DELETE` | `/api/transfers/{id}` | Get / update / delete transfer |
-| `POST` | `/api/transfers/{id}/run` | Run a transfer now (manual trigger) |
-| `GET` | `/api/transfers/{id}/runs` | Transfer run history |
-| `GET/POST` | `/api/destinations` | List / create destinations |
-| `GET/PUT/DELETE` | `/api/destinations/{id}` | Get / update / delete destination |
-| `GET` | `/api/destinations/browse?path=/DATA/...` | List subdirectories for the folder browser (restricted to `/DATA`) |
-| `POST` | `/api/destinations/{id}/mount` | Mount NFS/SMB share |
-| `POST` | `/api/destinations/{id}/unmount` | Unmount share |
+|---|---|---|
+| `POST` | `/api/drop/{slug}` | Upload one or many files (`multipart/form-data`, `file`/`files` fields) |
+| `GET` | `/api/drop/{slug}` | List files for endpoint (only if endpoint retrieval is enabled) |
+| `GET` | `/api/drop/{slug}/{filename}` | Download a file (only if endpoint retrieval is enabled) |
+
+### Session auth (admin UI/API)
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/auth/login` | Login and set session cookie |
+| `POST` | `/api/auth/logout` | Logout and clear session cookie |
+| `GET` | `/api/auth/me` | Current session user (`needsSetup` support) |
+| `POST` | `/api/auth/setup` | Create initial admin account (first run only) |
+| `GET/POST` | `/api/endpoints` | List/create drop endpoints |
+| `GET/PUT/DELETE` | `/api/endpoints/{id}` | Read/update/delete endpoint |
+| `GET/POST` | `/api/destinations` | List/create destinations |
+| `GET/PUT/DELETE` | `/api/destinations/{id}` | Read/update/delete destination |
 | `POST` | `/api/destinations/{id}/test` | Test destination accessibility |
-| `GET/POST` | `/api/api-keys` | List / generate API keys |
-| `DELETE/PATCH` | `/api/api-keys/{id}` | Delete / revoke key |
-| `GET` | `/api/logs` | File activity log (with filtering) |
-| `GET/PUT` | `/api/settings` | Get / update app settings |
-| `POST` | `/api/settings/smtp/test` | Send a test email |
-| `POST` | `/api/settings/victorialogs/test` | Send a test event to VictoriaLogs |
-| `GET/POST` | `/api/users` | List / create users |
-| `DELETE/PATCH` | `/api/users/{username}` | Delete / unlock / reset password |
+| `POST` | `/api/destinations/{id}/mount` | Mount NFS/SMB destination |
+| `POST` | `/api/destinations/{id}/unmount` | Unmount NFS/SMB destination |
+| `GET` | `/api/destinations/browse?path=...` | Browse directories under `/DATA` |
+| `GET/POST` | `/api/sftp-connections` | List/create SFTP server connections |
+| `GET/PUT/DELETE` | `/api/sftp-connections/{id}` | Read/update/delete SFTP connection |
+| `POST` | `/api/sftp-connections/{id}/test` | Test SFTP connection (`id=new` supports unsaved values) |
+| `GET/POST` | `/api/transfers` | List/create transfers |
+| `GET/PUT/DELETE` | `/api/transfers/{id}` | Read/update/delete transfer |
+| `POST` | `/api/transfers/{id}/run` | Run transfer now |
+| `GET` | `/api/transfers/{id}/runs` | Transfer run history (`limit` query) |
+| `GET/POST` | `/api/soap-connections` | List/create SOAP connections |
+| `GET/PUT/DELETE` | `/api/soap-connections/{id}` | Read/update/delete SOAP connection |
+| `POST` | `/api/soap-connections/{id}/test` | Test SOAP endpoint (`id=new` supports unsaved values) |
+| `GET/POST` | `/api/ftp-connections` | List/create FTP/FTPS connections |
+| `GET/PUT/DELETE` | `/api/ftp-connections/{id}` | Read/update/delete FTP/FTPS connection |
+| `POST` | `/api/ftp-connections/{id}/test` | Test FTP/FTPS connection (`id=new` supports unsaved values) |
+| `GET/POST` | `/api/integrations` | List/create integrations |
+| `GET/PUT/DELETE` | `/api/integrations/{id}` | Read/update/delete integration |
+| `POST` | `/api/integrations/{id}/run` | Run integration now |
+| `GET` | `/api/integrations/{id}/runs` | Integration run history (`limit` query) |
+| `GET/POST` | `/api/api-keys` | List/generate API keys |
+| `PATCH/DELETE` | `/api/api-keys/{id}` | Revoke/update endpoints or delete key |
+| `GET` | `/api/logs` | File activity logs and statistics (`stats=true`) |
+| `GET` | `/api/connections` | Connection log |
+| `GET` | `/api/audit` | Audit log |
+| `GET/PUT` | `/api/settings` | Read/update app settings |
+| `GET/PUT` | `/api/settings/smtp` | Read/update SMTP settings |
+| `POST` | `/api/settings/smtp/test` | Send SMTP test email |
+| `POST` | `/api/settings/victorialogs/test` | Send VictoriaLogs test event |
+| `GET/POST` | `/api/users` | List/create users |
+| `PATCH/DELETE` | `/api/users/{username}` | Unlock/reset password or delete user |
 
-## Security
+### Useful query parameters
+- `/api/logs`: `limit`, `offset`, `endpoint`, `status`, `search`, `stats=true`
+- `/api/connections`: `limit`, `offset`, `ip`, `search`
+- `/api/audit`: `limit`, `offset`, `actor`, `action`, `search`
+- `/api/transfers/{id}/runs`: `limit` (1–200)
+- `/api/integrations/{id}/runs`: `limit` (1–200)
+- `/api/destinations/browse`: `path` (must resolve inside `/DATA`)
 
-- API keys are generated with `crypto.randomBytes(48)` and stored as SHA-256 hashes
-- Plaintext keys are shown only once at creation
-- Passwords hashed with bcrypt (12 rounds)
-- Account lockout after 5 failed login attempts
-- Rate limiting per API key and per IP (auth endpoints)
-- SMB credentials encrypted with AES-256-GCM
-- Security headers: X-Frame-Options, CSP, HSTS, etc.
-- Session idle timeout (1 hour) and absolute timeout (8 hours)
+## Settings and configuration
+### Environment variables
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `3000` | App listen port |
+| `SECURE_COOKIES` | auto | Force secure session cookie behavior (`true`/`false`) |
+| `FILEDROP_ENC_KEY` | generated/persisted | 64-char hex key for credential encryption consistency across restarts/instances |
 
-## SFTP: Inbound vs. Outbound
+### Settings UI tabs
+- **General**
+  - app name,
+  - global max file size,
+  - file retention days.
+- **Users**
+  - list users,
+  - add user,
+  - unlock locked user,
+  - delete user (except self).
+- **Security**
+  - rate limit per API key (requests/minute).
+- **Email**
+  - SMTP host/port/credentials/sender/admin email,
+  - SMTP send-test action.
+- **Logging**
+  - VictoriaLogs forwarding toggle + host/port/protocol,
+  - test event action.
 
-FileDrop handles SFTP in two distinct ways:
+## Data storage
+All configuration and logs are persisted in `config/filedrop.db` (SQLite, WAL mode).
 
-- **Inbound SFTP server (Endpoints)** — FileDrop runs an embedded SFTP server. External parties connect to it and push files, which are written to the endpoint's destination. Configure this as an endpoint with type `sftp-server`. Enable/port are set under Settings (`sftpServerEnabled` / `sftpServerPort`). This is *not* a transfer and does not use a saved SFTP connection.
-- **Outbound transfers (SFTP Servers + Transfers)** — FileDrop connects *out* to a remote SFTP server (defined as a reusable **SFTP Server** connection) to pull files in or push files out. These are configured as **Transfers** and have no slug.
+Main tables:
+- `kv` (JSON-backed config objects: users, sessions, endpoints, destinations, connections, transfers, integrations, settings)
+- `api_keys`
+- `file_log`
+- `connection_log`
+- `audit_log`
+- `transfer_runs`
+- `integration_runs`
 
-### Transfers
+## Security model
+- API keys are generated securely and stored as SHA-256 hashes.
+- Plain API key value is shown only once at creation.
+- User passwords are bcrypt-hashed.
+- Login lockout occurs after repeated failures (admin unlock supported).
+- Auth endpoints are IP rate-limited.
+- Drop uploads are API-key rate-limited.
+- Stored credentials (SMB/SFTP/FTP/SOAP secrets) are encrypted (AES-256-GCM).
+- Session cookies are `httpOnly` and session lifetime includes idle/absolute expiry controls.
+- Security headers are configured in `next.config.ts` (frame/csp/hsts/etc.).
 
-A transfer references one saved **SFTP Server** connection and one **Destination**, and has a direction:
+## Logging and observability
+- **Dashboard**: live counters + latest file activity.
+- **Connection Log**: inbound request metadata and status.
+- **Audit Log**: auth/admin/config actions.
+- **Run history**: transfer and integration executions with status and counts.
+- **VictoriaLogs** (optional): forwards operational events over syslog UDP/TCP or HTTP.
 
-- **Pull** — list files on the remote `remotePath`, select a subset, and download them into the destination (optionally under a subdirectory). Optionally delete the source files after a successful transfer.
-- **Push** — read files from the destination and upload them to the remote `remotePath`.
-
-**File selection** modes (each can be combined with an optional extension filter):
-
-- `all` — every file in the path (optionally recursive)
-- `single` — one named file (by name or relative path)
-- `glob` — a `*`/`?` wildcard pattern matched against the file name
-- `list` — an explicit list of names / relative paths
-
-**File naming** reuses the destination filename mask (`original` or a `mask` with `{YYYY}`, `{MM}`, `{DD}`, `{HH}`, `{mm}`, `{ss}`, `{ORIGINAL}`, `{EXT}`, `{UUID8}` tokens).
-
-**Conflict policy** (when the target name already exists): `skip` (default), `overwrite`, or `rename` (append ` (n)` before the extension).
-
-**Scheduling** uses simple presets rather than cron: run every *N* `seconds` / `minutes` / `hours` / `days`. For `days` you may also set an `atTime` (`HH:MM`) to run at a fixed time of day. The minimum interval for `seconds` is 5. Schedules can be disabled, leaving the transfer manual-only ("Run now"). Changing a schedule in the UI re-arms the scheduler immediately.
-
-Each run records a row in `transfer_runs` (status `success` / `partial` / `failed`, file counts, bytes, error) viewable from the transfer's run history.
-
-### Migration from legacy SFTP endpoints
-
-Endpoints that previously used the SFTP *client* model (type `sftp` with polling) are migrated automatically on startup: each becomes a reusable SFTP Server connection plus a Transfer (polling interval → a `seconds` schedule, `deleteAfterTransfer` → delete-source). Duplicate connections (same host/port/username) are de-duplicated, and the legacy endpoints are removed.
-
-## Event Logging (VictoriaLogs)
-
-FileDrop can forward every event to a [VictoriaLogs](https://docs.victoriametrics.com/VictoriaLogs/) server: file uploads/transfers, outbound connections, audit actions, and transfer-run completions. Forwarding is **best-effort and non-blocking** — it never throws into or slows down a request or transfer path.
-
-Configure under **Settings > Logging**:
-
-- **Enable** — master on/off (enabled by default; a host must be set to actually send)
-- **Host** — VictoriaLogs server (default `vxvictorialog01`)
-- **Port** — `514` for syslog, `9428` for the HTTP JSON API
-- **Protocol** — `syslog-udp` (default), `syslog-tcp`, or `http`
-
-Use the **Send Test** button (or `POST /api/settings/victorialogs/test`) to verify connectivity. Records carry `app=filedrop`, `category`, `level`, and event-specific fields. Syslog transports send RFC5424 messages whose MSG is the JSON record; HTTP uses the `/insert/jsonline` ingestion endpoint.
-
-## Reverse Proxy
-
-See [REVERSE-PROXY.md](./REVERSE-PROXY.md) for nginx, Apache, and Caddy configuration examples.
-
-## External Party Guide
-
-See [EXTERNAL-PARTY-GUIDE.md](./EXTERNAL-PARTY-GUIDE.md) — a standalone document you can share with external parties explaining how to use the API.
-
-## Local destination folder browser (`/DATA`)
-
-When creating or editing a Destination, the **Browse /DATA** button opens a folder picker modal so you can select local paths without typing them manually.
-
-- Browsing is intentionally constrained to `/DATA`.
-- The browser only shows subdirectories (not files).
-- Navigation supports going into child folders, going up, and selecting the current folder.
-- The backing endpoint is `GET /api/destinations/browse?path=...` and rejects paths outside `/DATA`.
-
-## NFS/SMB Mount Management
-
-The app can manage NFS and SMB mounts. This requires appropriate system permissions:
-
-- **macOS**: Uses `mount_nfs` / `mount_smbfs` / `umount`
-- **Linux**: Uses `mount -t nfs` / `mount -t cifs` / `umount`
-
-For production, consider:
-- Running the app with `sudo` or configuring `sudoers` for mount commands
-- Pre-configuring mounts in `/etc/fstab` and using `mount -a`
-- Setting `FILEDROP_ENC_KEY` for persistent SMB password encryption
+## Reverse proxy and external-party usage
+- Reverse proxy deployment details: see `docs/REVERSE-PROXY.md`.
+- External client upload guide: see `docs/EXTERNAL-PARTY-GUIDE.md`.
