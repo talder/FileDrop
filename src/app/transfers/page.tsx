@@ -84,6 +84,7 @@ export default function TransfersPage() {
   const [fSchedEvery, setFSchedEvery] = useState("5");
   const [fSchedUnit, setFSchedUnit] = useState<TransferScheduleUnit>("minutes");
   const [fSchedAtTime, setFSchedAtTime] = useState("");
+  const [fSchedMode, setFSchedMode] = useState<"interval" | "daily">("interval");
   const [fNotifyOn, setFNotifyOn] = useState<"none" | "failures" | "all">("none");
   const [fNotifyEmail, setFNotifyEmail] = useState("");
   const [formError, setFormError] = useState("");
@@ -119,7 +120,7 @@ export default function TransfersPage() {
     setFSelMode("all"); setFSelValue(""); setFSelList(""); setFSelExts(""); setFSelRecursive(false);
     setFNamingPreset(0); setFNamingMask("");
     setFConflict("skip"); setFDeleteSource(false);
-    setFSchedEnabled(false); setFSchedEvery("5"); setFSchedUnit("minutes"); setFSchedAtTime("");
+    setFSchedEnabled(false); setFSchedEvery("5"); setFSchedUnit("minutes"); setFSchedAtTime(""); setFSchedMode("interval");
     setFNotifyOn("none"); setFNotifyEmail(""); setFormError("");
     setShowModal(true);
   };
@@ -144,6 +145,7 @@ export default function TransfersPage() {
     setFConflict(t.conflictPolicy || "skip"); setFDeleteSource(!!t.deleteSourceAfterTransfer);
     setFSchedEnabled(!!t.schedule?.enabled); setFSchedEvery(String(t.schedule?.every || 5));
     setFSchedUnit(t.schedule?.unit || "minutes"); setFSchedAtTime(t.schedule?.atTime || "");
+    setFSchedMode(t.schedule?.unit === "days" && t.schedule?.atTime ? "daily" : "interval");
     setFNotifyOn(t.notifications?.on || "none"); setFNotifyEmail(t.notifications?.email || "");
     setFormError("");
     setShowModal(true);
@@ -151,6 +153,10 @@ export default function TransfersPage() {
 
   const handleSubmit = async () => {
     setFormError("");
+    if (fSchedEnabled && fSchedMode === "daily" && !fSchedAtTime) {
+      setFormError("Choose a time of day for the daily schedule.");
+      return;
+    }
     const preset = NAMING_PRESETS[fNamingPreset];
     const fileNaming: FileNaming = preset.mode === "original"
       ? { mode: "original", mask: "" }
@@ -166,12 +172,19 @@ export default function TransfersPage() {
       connectionId: fConnId, direction: fDirection, remotePath: fRemotePath || ".",
       destinationId: fDestId, subdirectory: fSubdir || undefined,
       selection, fileNaming, conflictPolicy: fConflict, deleteSourceAfterTransfer: fDeleteSource,
-      schedule: {
-        enabled: fSchedEnabled,
-        every: Math.max(1, parseInt(fSchedEvery) || 1),
-        unit: fSchedUnit,
-        atTime: fSchedUnit === "days" && fSchedAtTime ? fSchedAtTime : undefined,
-      },
+      schedule: fSchedMode === "daily"
+        ? {
+            enabled: fSchedEnabled,
+            every: Math.max(1, parseInt(fSchedEvery) || 1),
+            unit: "days",
+            atTime: fSchedAtTime,
+          }
+        : {
+            enabled: fSchedEnabled,
+            every: Math.max(1, parseInt(fSchedEvery) || 1),
+            unit: fSchedUnit,
+            atTime: undefined,
+          },
       notifications: fNotifyOn !== "none" && fNotifyEmail ? { on: fNotifyOn, email: fNotifyEmail } : { on: "none", email: "" },
     };
 
@@ -404,28 +417,60 @@ export default function TransfersPage() {
                       <span className="text-sm font-medium text-text-secondary">Run on a schedule</span>
                     </div>
                     {fSchedEnabled && (
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-3">
                         <div>
-                          <label className="input-label">Every</label>
-                          <input className="input" type="number" min={1} value={fSchedEvery} onChange={(e) => setFSchedEvery(e.target.value)} />
-                        </div>
-                        <div>
-                          <label className="input-label">Unit</label>
-                          <select className="select" value={fSchedUnit} onChange={(e) => setFSchedUnit(e.target.value as TransferScheduleUnit)}>
-                            <option value="seconds">Seconds</option>
-                            <option value="minutes">Minutes</option>
-                            <option value="hours">Hours</option>
-                            <option value="days">Days</option>
+                          <label className="input-label">Schedule type</label>
+                          <select
+                            className="select"
+                            value={fSchedMode}
+                            onChange={(e) => {
+                              const mode = e.target.value as "interval" | "daily";
+                              setFSchedMode(mode);
+                              if (mode === "daily") {
+                                setFSchedUnit("days");
+                                setFSchedEvery("1");
+                                if (!fSchedAtTime) setFSchedAtTime("13:30");
+                              } else {
+                                setFSchedEvery("5");
+                                setFSchedUnit("minutes");
+                                setFSchedAtTime("");
+                              }
+                            }}
+                          >
+                            <option value="interval">Repeat every interval</option>
+                            <option value="daily">Daily at a specific time (HH:MM)</option>
                           </select>
                         </div>
-                        {fSchedUnit === "days" ? (
-                          <div className="col-span-2">
-                            <label className="input-label">At time of day (optional)</label>
-                            <input className="input" type="time" value={fSchedAtTime} onChange={(e) => setFSchedAtTime(e.target.value)} />
-                            <p className="text-xs text-text-muted mt-1">Set e.g. 13:30 to run at that time each day. Leave empty to use a fixed interval.</p>
-                          </div>
+                        {fSchedMode === "daily" ? (
+                          <>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="input-label">At time (24h)</label>
+                                <input className="input" type="time" value={fSchedAtTime} onChange={(e) => setFSchedAtTime(e.target.value)} />
+                              </div>
+                              <div>
+                                <label className="input-label">Every (days)</label>
+                                <input className="input" type="number" min={1} value={fSchedEvery} onChange={(e) => setFSchedEvery(e.target.value)} />
+                              </div>
+                            </div>
+                            <p className="text-xs text-text-muted">Runs at {fSchedAtTime || "the chosen time"} {(parseInt(fSchedEvery) || 1) > 1 ? `every ${fSchedEvery} days` : "every day"}.</p>
+                          </>
                         ) : (
-                          <p className="text-xs text-text-muted col-span-2">Tip: choose <strong>Days</strong> to run at a specific time of day (e.g. 13:30).</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="input-label">Every</label>
+                              <input className="input" type="number" min={1} value={fSchedEvery} onChange={(e) => setFSchedEvery(e.target.value)} />
+                            </div>
+                            <div>
+                              <label className="input-label">Unit</label>
+                              <select className="select" value={fSchedUnit} onChange={(e) => setFSchedUnit(e.target.value as TransferScheduleUnit)}>
+                                <option value="seconds">Seconds</option>
+                                <option value="minutes">Minutes</option>
+                                <option value="hours">Hours</option>
+                                <option value="days">Days</option>
+                              </select>
+                            </div>
+                          </div>
                         )}
                       </div>
                     )}
