@@ -35,6 +35,25 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ us
     await writeUsers(users);
     return NextResponse.json({ success: true, message: "Account unlocked" });
   }
+  if (typeof body.isAdmin === "boolean") {
+    if (username === user.username && body.isAdmin === false) {
+      return NextResponse.json({ error: "You cannot remove your own admin rights" }, { status: 400 });
+    }
+
+    if (users[idx].isAdmin && body.isAdmin === false) {
+      const adminCount = users.filter((u) => u.isAdmin).length;
+      if (adminCount <= 1) {
+        return NextResponse.json({ error: "At least one admin user is required" }, { status: 400 });
+      }
+    }
+
+    users[idx].isAdmin = body.isAdmin;
+    await writeUsers(users);
+    return NextResponse.json({
+      success: true,
+      message: body.isAdmin ? "Admin rights granted" : "Admin rights removed",
+    });
+  }
 
   if (body.password) {
     if (body.password.length < 8) return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });

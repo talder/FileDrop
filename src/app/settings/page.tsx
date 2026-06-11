@@ -27,6 +27,8 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState("");
   const [newFullName, setNewFullName] = useState("");
   const [userError, setUserError] = useState("");
+  const [userActionError, setUserActionError] = useState("");
+  const [userActionMessage, setUserActionMessage] = useState("");
   const [deleteUserTarget, setDeleteUserTarget] = useState<SanitizedUser | null>(null);
 
   // Security
@@ -161,16 +163,48 @@ export default function SettingsPage() {
 
   const handleDeleteUser = async () => {
     if (!deleteUserTarget) return;
-    await fetch(`/api/users/${deleteUserTarget.username}`, { method: "DELETE" });
+    const res = await fetch(`/api/users/${deleteUserTarget.username}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) {
+      setUserActionError(data.error || "Failed to delete user");
+      return;
+    }
+    setUserActionError("");
+    setUserActionMessage("User deleted");
     setDeleteUserTarget(null);
     fetchUsers();
   };
 
   const handleUnlockUser = async (username: string) => {
-    await fetch(`/api/users/${username}`, {
+    const res = await fetch(`/api/users/${username}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ unlock: true }),
     });
+    const data = await res.json();
+    if (!res.ok) {
+      setUserActionError(data.error || "Failed to unlock user");
+      return;
+    }
+    setUserActionError("");
+    setUserActionMessage(data.message || "Account unlocked");
+    setTimeout(() => setUserActionMessage(""), 2000);
+    fetchUsers();
+  };
+
+  const handleSetAdmin = async (username: string, isAdmin: boolean) => {
+    const res = await fetch(`/api/users/${username}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isAdmin }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setUserActionError(data.error || "Failed to update user rights");
+      return;
+    }
+    setUserActionError("");
+    setUserActionMessage(data.message || "User rights updated");
+    setTimeout(() => setUserActionMessage(""), 2000);
     fetchUsers();
   };
 
@@ -220,6 +254,8 @@ export default function SettingsPage() {
                 <p className="text-sm text-text-muted">{users.length} user{users.length !== 1 ? "s" : ""}</p>
                 <button className="btn btn-primary btn-sm" onClick={() => setShowAddUser(true)}><Plus className="w-3.5 h-3.5" /> Add User</button>
               </div>
+              {userActionError && <p className="mb-3 text-sm text-red-500">{userActionError}</p>}
+              {userActionMessage && <p className="mb-3 text-sm text-green-600">{userActionMessage}</p>}
               <table className="data-table">
                 <thead><tr><th>Username</th><th>Full Name</th><th>Admin</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
                 <tbody>
@@ -232,6 +268,15 @@ export default function SettingsPage() {
                       <td className="text-xs">{u.lastLogin ? new Date(u.lastLogin).toLocaleString() : "Never"}</td>
                       <td>
                         <div className="flex items-center gap-1">
+                          {u.username !== user?.username && (
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              onClick={() => handleSetAdmin(u.username, !u.isAdmin)}
+                              title={u.isAdmin ? "Remove admin rights" : "Grant admin rights"}
+                            >
+                              {u.isAdmin ? "Demote" : "Promote"}
+                            </button>
+                          )}
                           {u.isLocked && <button className="btn btn-ghost btn-sm" onClick={() => handleUnlockUser(u.username)} title="Unlock"><Unlock className="w-3.5 h-3.5" /></button>}
                           {u.username !== user?.username && <button className="btn btn-ghost btn-sm text-red-500" onClick={() => setDeleteUserTarget(u)} title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>}
                         </div>
