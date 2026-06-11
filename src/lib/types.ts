@@ -55,6 +55,31 @@ export interface FileNaming {
   /** Mask template, e.g. "{YYYY}{MM}{DD}-{HH}{mm}{ss}_{ORIGINAL}{EXT}" */
   mask: string;
 }
+export type NotificationMode = "all" | "failures" | "none";
+export interface EmailNotificationConfig {
+  /** Email address to send notifications to */
+  email: string;
+  /** When to send notifications */
+  on: NotificationMode;
+}
+export interface WebhookNotificationConfig {
+  /** Fully-qualified webhook URL */
+  url: string;
+  /** When to send webhook events */
+  on: NotificationMode;
+  /** Optional shared secret used for signature header */
+  secret?: string;
+}
+export interface RetryPolicy {
+  /** Enables retry/dead-letter behavior for this job */
+  enabled: boolean;
+  /** Total attempts per file operation, including the first attempt */
+  maxAttempts: number;
+  /** Delay in seconds between retries (linear backoff) */
+  backoffSeconds: number;
+  /** Dead-letter folder name/path relative to source root */
+  deadLetterSubdirectory?: string;
+}
 
 export const FILE_NAMING_PRESETS: { label: string; mode: FileNaming["mode"]; mask: string }[] = [
   { label: "Keep original", mode: "original", mask: "" },
@@ -97,12 +122,13 @@ export interface DropEndpoint {
   /** Whether API key holders can retrieve/download files */
   allowRetrieval: boolean;
   /** Email notification config */
-  notifications?: {
-    /** Email address to send notifications to */
-    email: string;
-    /** When to send: "all" = every upload, "failures" = only failures, "none" = disabled */
-    on: "all" | "failures" | "none";
-  };
+  notifications?: EmailNotificationConfig;
+  /** Webhook notification config */
+  webhook?: WebhookNotificationConfig;
+  /** Endpoint-specific retention override in days (undefined = global setting) */
+  retentionDays?: number;
+  /** Reject duplicate uploads with the same SHA-256 checksum for this endpoint */
+  rejectDuplicates?: boolean;
   createdAt: string;
   updatedAt?: string;
 }
@@ -198,10 +224,11 @@ export interface Transfer {
   /** Automatic run schedule */
   schedule: TransferSchedule;
   /** Email notification config */
-  notifications?: {
-    email: string;
-    on: "all" | "failures" | "none";
-  };
+  notifications?: EmailNotificationConfig;
+  /** Webhook notification config */
+  webhook?: WebhookNotificationConfig;
+  /** Retry/dead-letter behavior */
+  retryPolicy?: RetryPolicy;
   createdAt: string;
   updatedAt?: string;
   /** Last run summary (denormalized for list display) */
@@ -264,6 +291,7 @@ export interface FileLogEntry {
   endpointSlug: string;
   destinationPath: string;
   destinationName: string;
+  checksumSha256?: string;
   status: "success" | "failed";
   errorMessage?: string;
 }
@@ -386,10 +414,11 @@ export interface Integration {
   /** Automatic run schedule */
   schedule: TransferSchedule;
   /** Email notification config */
-  notifications?: {
-    email: string;
-    on: "all" | "failures" | "none";
-  };
+  notifications?: EmailNotificationConfig;
+  /** Webhook notification config */
+  webhook?: WebhookNotificationConfig;
+  /** Retry/dead-letter behavior */
+  retryPolicy?: RetryPolicy;
   createdAt: string;
   updatedAt?: string;
   /** Last run summary (denormalized for list display) */

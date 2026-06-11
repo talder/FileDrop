@@ -8,12 +8,12 @@ export function logFileUpload(
 ): number {
   const db = getDb();
   const result = db.prepare(`
-    INSERT INTO file_log (timestamp, filename, original_filename, file_size, mime_type, source_ip, source_hostname, api_key_id, api_key_party, endpoint_slug, destination_path, destination_name, status, error_message)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO file_log (timestamp, filename, original_filename, file_size, mime_type, source_ip, source_hostname, api_key_id, api_key_party, endpoint_slug, destination_path, destination_name, checksum_sha256, status, error_message)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     entry.timestamp, entry.filename, entry.originalFilename, entry.fileSize,
     entry.mimeType, entry.sourceIp, entry.sourceHostname || "", entry.apiKeyId, entry.apiKeyPartyName,
-    entry.endpointSlug, entry.destinationPath, entry.destinationName || "", entry.status, entry.errorMessage || null
+    entry.endpointSlug, entry.destinationPath, entry.destinationName || "", entry.checksumSha256 || "", entry.status, entry.errorMessage || null
   );
 
   // Callers that emit their own richer VictoriaLogs event (e.g. transfers) can
@@ -38,6 +38,18 @@ export function logFileUpload(
   }
 
   return result.lastInsertRowid as number;
+}
+export function findSuccessfulUploadByChecksum(endpointSlug: string, checksumSha256: string): FileLogEntry | null {
+  if (!checksumSha256) return null;
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT * FROM file_log
+    WHERE endpoint_slug = ? AND checksum_sha256 = ? AND status = 'success'
+    ORDER BY id DESC
+    LIMIT 1
+  `).get(endpointSlug, checksumSha256) as Record<string, string | number | null> | undefined;
+
+  return row ? rowToEntry(row) : null;
 }
 
 interface LogQuery {
@@ -98,6 +110,7 @@ function rowToEntry(row: Record<string, string | number | null>): FileLogEntry {
     endpointSlug: row.endpoint_slug as string,
     destinationPath: row.destination_path as string,
     destinationName: (row.destination_name as string) || "",
+    checksumSha256: (row.checksum_sha256 as string) || undefined,
     status: row.status as "success" | "failed",
     errorMessage: row.error_message as string | undefined,
   };

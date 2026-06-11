@@ -98,6 +98,13 @@ export default function IntegrationsPage() {
   // notifications
   const [fNotifyOn, setFNotifyOn] = useState<"none" | "failures" | "all">("none");
   const [fNotifyEmail, setFNotifyEmail] = useState("");
+  const [fWebhookOn, setFWebhookOn] = useState<"none" | "failures" | "all">("none");
+  const [fWebhookUrl, setFWebhookUrl] = useState("");
+  const [fWebhookSecret, setFWebhookSecret] = useState("");
+  const [fRetryEnabled, setFRetryEnabled] = useState(false);
+  const [fRetryMaxAttempts, setFRetryMaxAttempts] = useState("3");
+  const [fRetryBackoffSeconds, setFRetryBackoffSeconds] = useState("5");
+  const [fRetryDeadLetter, setFRetryDeadLetter] = useState("_dead-letter");
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
@@ -136,7 +143,10 @@ export default function IntegrationsPage() {
     setFFtpEnabled(false); setFFtpId(ftps[0]?.id || ""); setFFtpRemotePath("");
     setFDeleteSource(false);
     setFSchedEnabled(false); setFSchedEvery("5"); setFSchedUnit("minutes"); setFSchedAtTime(""); setFSchedMode("interval");
-    setFNotifyOn("none"); setFNotifyEmail(""); setFormError("");
+    setFNotifyOn("none"); setFNotifyEmail("");
+    setFWebhookOn("none"); setFWebhookUrl(""); setFWebhookSecret("");
+    setFRetryEnabled(false); setFRetryMaxAttempts("3"); setFRetryBackoffSeconds("5"); setFRetryDeadLetter("_dead-letter");
+    setFormError("");
     setShowModal(true);
   };
 
@@ -173,6 +183,13 @@ export default function IntegrationsPage() {
     setFSchedUnit(i.schedule?.unit || "minutes"); setFSchedAtTime(i.schedule?.atTime || "");
     setFSchedMode(i.schedule?.unit === "days" && i.schedule?.atTime ? "daily" : "interval");
     setFNotifyOn(i.notifications?.on || "none"); setFNotifyEmail(i.notifications?.email || "");
+    setFWebhookOn(i.webhook?.on || "none");
+    setFWebhookUrl(i.webhook?.url || "");
+    setFWebhookSecret(i.webhook?.secret || "");
+    setFRetryEnabled(!!i.retryPolicy?.enabled);
+    setFRetryMaxAttempts(String(i.retryPolicy?.maxAttempts || 3));
+    setFRetryBackoffSeconds(String(i.retryPolicy?.backoffSeconds || 5));
+    setFRetryDeadLetter(i.retryPolicy?.deadLetterSubdirectory || "_dead-letter");
     setFormError("");
     setShowModal(true);
   };
@@ -218,6 +235,15 @@ export default function IntegrationsPage() {
             atTime: fSchedUnit === "days" && fSchedAtTime ? fSchedAtTime : undefined,
           },
       notifications: fNotifyOn !== "none" && fNotifyEmail ? { on: fNotifyOn, email: fNotifyEmail } : { on: "none", email: "" },
+      webhook: fWebhookOn !== "none" && fWebhookUrl.trim()
+        ? { on: fWebhookOn, url: fWebhookUrl.trim(), secret: fWebhookSecret.trim() || undefined }
+        : { on: "none", url: "" },
+      retryPolicy: {
+        enabled: fRetryEnabled,
+        maxAttempts: Math.max(1, parseInt(fRetryMaxAttempts) || 3),
+        backoffSeconds: Math.max(0, parseInt(fRetryBackoffSeconds) || 5),
+        deadLetterSubdirectory: fRetryDeadLetter.trim() || "_dead-letter",
+      },
     };
 
     const url = editTarget ? `/api/integrations/${editTarget.id}` : "/api/integrations";
@@ -271,6 +297,14 @@ export default function IntegrationsPage() {
   const soapUrl = (id: string) => soaps.find((s) => s.id === id)?.url || "";
   const destName = (id: string) => destinations.find((d) => d.id === id)?.name || "Unknown";
   const noPrereqs = destinations.length === 0 || soaps.length === 0;
+  const handleOpenCreate = () => {
+    if (loading) return;
+    if (noPrereqs) {
+      setBanner("Create at least one Destination and one SOAP Endpoint before creating an integration.");
+      return;
+    }
+    openCreate();
+  };
 
   return (
     <div className="flex flex-col h-screen">
@@ -280,7 +314,7 @@ export default function IntegrationsPage() {
         <div className="page-container">
           <div className="page-header">
             <h1 className="page-title">Integrations</h1>
-            <button className="btn btn-primary" onClick={openCreate} disabled={noPrereqs}><Plus className="w-4 h-4" /> New Integration</button>
+            <button className="btn btn-primary" onClick={handleOpenCreate} disabled={loading}><Plus className="w-4 h-4" /> New Integration</button>
           </div>
 
           {banner && (
@@ -562,6 +596,32 @@ export default function IntegrationsPage() {
                     )}
                   </div>
 
+                  {/* Retry + Dead-letter */}
+                  <div className="p-3 rounded-lg border border-border space-y-3">
+                    <div className="flex items-center gap-2">
+                      <button className={`toggle ${fRetryEnabled ? "active" : ""}`} onClick={() => setFRetryEnabled(!fRetryEnabled)}><span className="toggle-knob" /></button>
+                      <span className="text-sm font-medium text-text-secondary">Retry SOAP/FTP failures and dead-letter exhausted source files</span>
+                    </div>
+                    {fRetryEnabled && (
+                      <>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="input-label">Max Attempts</label>
+                            <input className="input" type="number" min={1} value={fRetryMaxAttempts} onChange={(e) => setFRetryMaxAttempts(e.target.value)} />
+                          </div>
+                          <div>
+                            <label className="input-label">Backoff Seconds</label>
+                            <input className="input" type="number" min={0} value={fRetryBackoffSeconds} onChange={(e) => setFRetryBackoffSeconds(e.target.value)} />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="input-label">Dead-letter Subdirectory</label>
+                          <input className="input" value={fRetryDeadLetter} onChange={(e) => setFRetryDeadLetter(e.target.value)} placeholder="_dead-letter" />
+                        </div>
+                      </>
+                    )}
+                  </div>
+
                   {/* Notifications */}
                   <div className="p-3 rounded-lg border border-border space-y-3">
                     <p className="text-xs font-semibold text-text-muted uppercase">Email Notifications</p>
@@ -578,6 +638,31 @@ export default function IntegrationsPage() {
                         <label className="input-label">Email Address</label>
                         <input className="input" type="email" value={fNotifyEmail} onChange={(e) => setFNotifyEmail(e.target.value)} placeholder="alerts@example.com" />
                       </div>
+                    )}
+                  </div>
+
+                  {/* Webhook Notifications */}
+                  <div className="p-3 rounded-lg border border-border space-y-3">
+                    <p className="text-xs font-semibold text-text-muted uppercase">Webhook Notifications</p>
+                    <div>
+                      <label className="input-label">Notify on</label>
+                      <select className="select" value={fWebhookOn} onChange={(e) => setFWebhookOn(e.target.value as "none" | "failures" | "all")}>
+                        <option value="none">Disabled</option>
+                        <option value="failures">Failures only</option>
+                        <option value="all">Every run</option>
+                      </select>
+                    </div>
+                    {fWebhookOn !== "none" && (
+                      <>
+                        <div>
+                          <label className="input-label">Webhook URL</label>
+                          <input className="input" value={fWebhookUrl} onChange={(e) => setFWebhookUrl(e.target.value)} placeholder="https://example.com/webhooks/filedrop" />
+                        </div>
+                        <div>
+                          <label className="input-label">Webhook Secret (optional)</label>
+                          <input className="input" value={fWebhookSecret} onChange={(e) => setFWebhookSecret(e.target.value)} placeholder="shared secret for signature verification" />
+                        </div>
+                      </>
                     )}
                   </div>
 

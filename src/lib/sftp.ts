@@ -101,6 +101,11 @@ export function unlinkP(sftp: SFTPWrapper, remoteFile: string): Promise<void> {
     sftp.unlink(remoteFile, (err) => (err ? reject(err) : resolve()));
   });
 }
+export function renameP(sftp: SFTPWrapper, oldPath: string, newPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sftp.rename(oldPath, newPath, (err) => (err ? reject(err) : resolve()));
+  });
+}
 
 function mkdirOne(sftp: SFTPWrapper, dir: string): Promise<void> {
   return new Promise((resolve) => {

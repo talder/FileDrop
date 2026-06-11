@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "fs";
-import { mkdir, readdir, unlink } from "fs/promises";
+import { mkdir, readdir, rename, unlink } from "fs/promises";
 import path from "path";
 import type { SFTPWrapper } from "ssh2";
 import type { Transfer, TransferRunStatus, TransferTrigger } from "./types";
@@ -11,6 +11,8 @@ import {
   resolveRemoteSource,
   fastGetP,
   fastPutP,
+  remoteExists,
+  renameP,
   unlinkP,
   ensureRemoteDir,
 } from "./sftp";
@@ -21,7 +23,9 @@ import { forwardToVictoriaLogs } from "./victorialog";
 import { startTransferRun, finishTransferRun } from "./transfer-runs";
 import { setTransferLastRun } from "./transfers";
 import { auditLog } from "./audit";
+import { normalizeRetryPolicy, runWithRetries } from "./retry-policy";
 import { sendFileNotification } from "./email";
+import { sendWebhookNotification } from "./webhook";
 import type { SelectableFile } from "./transfer-util";
 
 export interface RunSummary {
@@ -106,6 +110,76 @@ function logTransferFile(transfer: Transfer, p: {
   );
 }
 
+function emitTransferWebhook(transfer: Transfer, opts: {
+  failed: boolean;
+  payload: Record<string, unknown>;
+}): void {
+  void sendWebhookNotification({
+    config: transfer.webhook,
+    event: opts.failed ? "transfer.run.failed" : "transfer.run.succeeded",
+    failed: opts.failed,
+    payload: opts.payload,
+  });
+}
+
+function withAttemptMessage(base: string, enabled: boolean, maxAttempts: number): string {
+  if (!enabled) return base;
+  return `Failed after ${maxAttempts} attempts: ${base}`;
+}
+
+async function moveLocalToDeadLetter(sourceFile: string, sourceRoot: string, deadLetterSubdirectory: string): Promise<string | null> {
+  const deadDir = path.join(sourceRoot, deadLetterSubdirectory || "_dead-letter");
+  try {
+    await mkdir(deadDir, { recursive: true });
+  } catch {
+    return null;
+  }
+  const ext = path.extname(sourceFile);
+  const stem = path.basename(sourceFile, ext);
+  let candidate = path.join(deadDir, path.basename(sourceFile));
+  let suffix = 1;
+  while (existsSync(candidate)) {
+    candidate = path.join(deadDir, `${stem}.${suffix}${ext}`);
+    suffix += 1;
+  }
+  try {
+    await rename(sourceFile, candidate);
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
+async function moveRemoteToDeadLetter(
+  sftp: SFTPWrapper,
+  sourceRemotePath: string,
+  sourceRoot: string,
+  deadLetterSubdirectory: string,
+): Promise<string | null> {
+  const deadDir = path.posix.join(sourceRoot || ".", deadLetterSubdirectory || "_dead-letter");
+  try {
+    await ensureRemoteDir(sftp, deadDir);
+  } catch {
+    return null;
+  }
+
+  const ext = path.posix.extname(sourceRemotePath);
+  const stem = path.posix.basename(sourceRemotePath, ext);
+  let candidate = path.posix.join(deadDir, path.posix.basename(sourceRemotePath));
+  let suffix = 1;
+  while (await remoteExists(sftp, candidate)) {
+    candidate = path.posix.join(deadDir, `${stem}.${suffix}${ext}`);
+    suffix += 1;
+  }
+
+  try {
+    await renameP(sftp, sourceRemotePath, candidate);
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Execute a transfer once. Used by both manual runs and the scheduler.
  * Never throws for per-file errors; only structural failures (missing
@@ -148,6 +222,22 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
       targetId: transfer.id,
       details: { name: transfer.name, error: message },
     });
+    emitTransferWebhook(transfer, {
+      failed: true,
+      payload: {
+        transferId: transfer.id,
+        transferName: transfer.name,
+        direction: transfer.direction,
+        trigger,
+        status: "failed",
+        filesTotal: summary.filesTotal,
+        filesOk: summary.filesOk,
+        filesFailed: summary.filesFailed,
+        filesSkipped: summary.filesSkipped,
+        bytes: summary.bytes,
+        errorMessage: message,
+      },
+    });
     return summary;
   };
 
@@ -165,6 +255,7 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
   const remoteBase = transfer.remotePath || ".";
   const recursive = !!transfer.selection.recursive;
   const naming = transfer.fileNaming || { mode: "mask" as const, mask: "{ORIGINAL}{EXT}" };
+  const retryPolicy = normalizeRetryPolicy(transfer.retryPolicy);
 
   let session: { sftp: SFTPWrapper; close: () => void } | null = null;
   try {
@@ -221,7 +312,9 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
         const localTarget = path.join(targetDir, savedName);
 
         try {
-          await fastGetP(sftp, remoteFile, localTarget);
+          await runWithRetries(retryPolicy, async () => {
+            await fastGetP(sftp, remoteFile, localTarget);
+          });
           written.add(localTarget);
           summary.filesOk += 1;
           summary.bytes += file.size;
@@ -242,10 +335,25 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
             size: file.size,
           });
           if (transfer.deleteSourceAfterTransfer) {
-            try { await unlinkP(sftp, remoteFile); } catch { /* best effort */ }
+            try {
+              await runWithRetries(retryPolicy, async () => {
+                await unlinkP(sftp, remoteFile);
+              });
+            } catch {
+              /* best effort */
+            }
           }
         } catch (err) {
-          const msg = (err as Error).message;
+          const msgBase = withAttemptMessage((err as Error).message, retryPolicy.enabled, retryPolicy.maxAttempts);
+          const movedToDeadLetter = retryPolicy.enabled
+            ? await moveRemoteToDeadLetter(
+                sftp,
+                remoteFile,
+                source.baseDir,
+                retryPolicy.deadLetterSubdirectory || "_dead-letter",
+              )
+            : null;
+          const msg = movedToDeadLetter ? `${msgBase} (moved to dead-letter: ${movedToDeadLetter})` : msgBase;
           summary.filesFailed += 1;
           summary.errors.push(`${file.relPath}: ${msg}`);
           logFileUpload({
@@ -307,7 +415,9 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
         const remoteTarget = path.posix.join(remoteDir, savedName);
 
         try {
-          await fastPutP(sftp, localSource, remoteTarget);
+          await runWithRetries(retryPolicy, async () => {
+            await fastPutP(sftp, localSource, remoteTarget);
+          });
           remoteNames.add(remoteTarget);
           summary.filesOk += 1;
           summary.bytes += file.size;
@@ -328,10 +438,24 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
             size: file.size,
           });
           if (transfer.deleteSourceAfterTransfer) {
-            try { await unlink(localSource); } catch { /* best effort */ }
+            try {
+              await runWithRetries(retryPolicy, async () => {
+                await unlink(localSource);
+              });
+            } catch {
+              /* best effort */
+            }
           }
         } catch (err) {
-          const msg = (err as Error).message;
+          const msgBase = withAttemptMessage((err as Error).message, retryPolicy.enabled, retryPolicy.maxAttempts);
+          const movedToDeadLetter = retryPolicy.enabled
+            ? await moveLocalToDeadLetter(
+                localSource,
+                localDir,
+                retryPolicy.deadLetterSubdirectory || "_dead-letter",
+              )
+            : null;
+          const msg = movedToDeadLetter ? `${msgBase} (moved to dead-letter: ${movedToDeadLetter})` : msgBase;
           summary.filesFailed += 1;
           summary.errors.push(`${file.relPath}: ${msg}`);
           logFileUpload({
@@ -413,6 +537,23 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
       });
     }
   }
+
+  emitTransferWebhook(transfer, {
+    failed: summary.filesFailed > 0 || summary.status === "failed",
+    payload: {
+      transferId: transfer.id,
+      transferName: transfer.name,
+      direction: transfer.direction,
+      trigger,
+      status: summary.status,
+      filesTotal: summary.filesTotal,
+      filesOk: summary.filesOk,
+      filesFailed: summary.filesFailed,
+      filesSkipped: summary.filesSkipped,
+      bytes: summary.bytes,
+      errors: summary.errors.slice(0, 5),
+    },
+  });
 
   return summary;
 }

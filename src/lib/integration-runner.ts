@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "fs";
-import { mkdir, readdir, readFile, writeFile, unlink } from "fs/promises";
+import { mkdir, readdir, readFile, rename, writeFile, unlink } from "fs/promises";
 import os from "os";
 import path from "path";
 import http from "node:http";
@@ -16,7 +16,9 @@ import { logFileUpload } from "./file-log";
 import { startIntegrationRun, finishIntegrationRun } from "./integration-runs";
 import { setIntegrationLastRun } from "./integrations";
 import { auditLog } from "./audit";
+import { normalizeRetryPolicy, runWithRetries } from "./retry-policy";
 import { sendFileNotification } from "./email";
+import { sendWebhookNotification } from "./webhook";
 import type { SelectableFile } from "./transfer-util";
 
 export interface IntegrationRunSummary {
@@ -32,6 +34,52 @@ function computeStatus(ok: number, failed: number): TransferRunStatus {
   if (failed > 0 && ok > 0) return "partial";
   if (failed > 0) return "failed";
   return "success";
+}
+
+function emitIntegrationWebhook(integration: Integration, opts: {
+  failed: boolean;
+  payload: Record<string, unknown>;
+}): void {
+  void sendWebhookNotification({
+    config: integration.webhook,
+    event: opts.failed ? "integration.run.failed" : "integration.run.succeeded",
+    failed: opts.failed,
+    payload: opts.payload,
+  });
+}
+
+function withAttemptMessage(base: string, enabled: boolean, maxAttempts: number): string {
+  if (!enabled) return base;
+  return `Failed after ${maxAttempts} attempts: ${base}`;
+}
+
+async function moveSourceToDeadLetter(
+  sourceFile: string,
+  sourceRoot: string,
+  deadLetterSubdirectory: string,
+): Promise<string | null> {
+  const deadDir = path.join(sourceRoot, deadLetterSubdirectory || "_dead-letter");
+  try {
+    await mkdir(deadDir, { recursive: true });
+  } catch {
+    return null;
+  }
+
+  const ext = path.extname(sourceFile);
+  const stem = path.basename(sourceFile, ext);
+  let candidate = path.join(deadDir, path.basename(sourceFile));
+  let suffix = 1;
+  while (existsSync(candidate)) {
+    candidate = path.join(deadDir, `${stem}.${suffix}${ext}`);
+    suffix += 1;
+  }
+
+  try {
+    await rename(sourceFile, candidate);
+    return candidate;
+  } catch {
+    return null;
+  }
 }
 
 interface LocalFile extends SelectableFile {
@@ -184,6 +232,20 @@ export async function runIntegration(
       targetId: integration.id,
       details: { name: integration.name, error: message },
     });
+    emitIntegrationWebhook(integration, {
+      failed: true,
+      payload: {
+        integrationId: integration.id,
+        integrationName: integration.name,
+        trigger,
+        status: "failed",
+        filesTotal: summary.filesTotal,
+        filesOk: summary.filesOk,
+        filesFailed: summary.filesFailed,
+        filesSkipped: summary.filesSkipped,
+        errorMessage: message,
+      },
+    });
     return summary;
   };
 
@@ -216,6 +278,7 @@ export async function runIntegration(
 
   const recursive = !!integration.sourceSelection?.recursive;
   const naming = integration.responseFileNaming || { mode: "original" as const, mask: "" };
+  const retryPolicy = normalizeRetryPolicy(integration.retryPolicy);
 
   // Build the SOAP request context once.
   const soapPassword = soap.passwordEncrypted ? decryptPassword(soap.passwordEncrypted) || "" : "";
@@ -245,9 +308,17 @@ export async function runIntegration(
 
     let payload: string;
     try {
-      payload = await readFile(sourcePath, "utf8");
+      payload = await runWithRetries(retryPolicy, async () => readFile(sourcePath, "utf8")).then((res) => res.value);
     } catch (err) {
-      const msg = `read failed: ${(err as Error).message}`;
+      const msgBase = withAttemptMessage(`read failed: ${(err as Error).message}`, retryPolicy.enabled, retryPolicy.maxAttempts);
+      const movedToDeadLetter = retryPolicy.enabled
+        ? await moveSourceToDeadLetter(
+            sourcePath,
+            sourceDir,
+            retryPolicy.deadLetterSubdirectory || "_dead-letter",
+          )
+        : null;
+      const msg = movedToDeadLetter ? `${msgBase} (moved to dead-letter: ${movedToDeadLetter})` : msgBase;
       summary.filesFailed += 1;
       summary.errors.push(`${file.relPath}: ${msg}`);
       logFileUpload({ timestamp: ts, filename: file.name, originalFilename: file.name, fileSize: file.size, status: "failed", errorMessage: msg, ...logBase });
@@ -262,20 +333,31 @@ export async function runIntegration(
     // POST to the SOAP endpoint.
     let responseText: string;
     try {
-      const res = await soapPost({
-        url: soap.url,
-        body,
-        authBasic: basicAuth,
-        soapAction: soap.soapAction || undefined,
-        ignoreTlsErrors: !!soap.ignoreTlsErrors,
-        signal: AbortSignal.timeout(60000),
+      const responseResult = await runWithRetries(retryPolicy, async () => {
+        const res = await soapPost({
+          url: soap.url,
+          body,
+          authBasic: basicAuth,
+          soapAction: soap.soapAction || undefined,
+          ignoreTlsErrors: !!soap.ignoreTlsErrors,
+          signal: AbortSignal.timeout(60000),
+        });
+        if (!res.ok) {
+          throw new Error(`SOAP HTTP ${res.status}${res.text ? `: ${res.text.slice(0, 200)}` : ""}`);
+        }
+        return res.text;
       });
-      responseText = res.text;
-      if (!res.ok) {
-        throw new Error(`SOAP HTTP ${res.status}${responseText ? `: ${responseText.slice(0, 200)}` : ""}`);
-      }
+      responseText = responseResult.value;
     } catch (err) {
-      const msg = `SOAP call failed: ${(err as Error).message}`;
+      const msgBase = withAttemptMessage(`SOAP call failed: ${(err as Error).message}`, retryPolicy.enabled, retryPolicy.maxAttempts);
+      const movedToDeadLetter = retryPolicy.enabled
+        ? await moveSourceToDeadLetter(
+            sourcePath,
+            sourceDir,
+            retryPolicy.deadLetterSubdirectory || "_dead-letter",
+          )
+        : null;
+      const msg = movedToDeadLetter ? `${msgBase} (moved to dead-letter: ${movedToDeadLetter})` : msgBase;
       summary.filesFailed += 1;
       summary.errors.push(`${file.relPath}: ${msg}`);
       logFileUpload({ timestamp: ts, filename: file.name, originalFilename: file.name, fileSize: file.size, status: "failed", errorMessage: msg, ...logBase });
@@ -284,64 +366,102 @@ export async function runIntegration(
 
     // SOAP succeeded for this file.
     const responseBody = soap.extractBody ? extractSoapBody(responseText) : responseText;
-    const fileErrors: string[] = [];
+    const warnings: string[] = [];
+    const hardFailures: string[] = [];
 
     // Save the response locally (optional).
     let savedLocalPath: string | null = null;
     let savedName: string | null = null;
+    const desiredName = applyFilenameMask(naming, file.name);
     if (responseDir) {
-      const desired = applyFilenameMask(naming, file.name);
       const resolution = applyConflictPolicy(
-        desired,
+        desiredName,
         "rename",
         (n) => writtenResponses.has(path.join(responseDir!, n)) || existsSync(path.join(responseDir!, n)),
       );
-      savedName = resolution.name || desired;
+      savedName = resolution.name || desiredName;
       savedLocalPath = path.join(responseDir, savedName);
       try {
-        await writeFile(savedLocalPath, responseBody, "utf8");
+        await runWithRetries(retryPolicy, async () => {
+          await writeFile(savedLocalPath!, responseBody, "utf8");
+        });
         writtenResponses.add(savedLocalPath);
       } catch (err) {
-        fileErrors.push(`save response failed: ${(err as Error).message}`);
+        hardFailures.push(withAttemptMessage(`save response failed: ${(err as Error).message}`, retryPolicy.enabled, retryPolicy.maxAttempts));
         savedLocalPath = null;
       }
+    } else {
+      savedName = desiredName;
     }
 
-    // Deliver the response to FTP (optional). A failure here is recorded but
-    // does NOT fail the file, since the SOAP call already succeeded.
+    // Deliver the response to FTP (optional).
     if (ftpConn) {
       let uploadPath = savedLocalPath;
       let tempPath: string | null = null;
       try {
         if (!uploadPath) {
           tempPath = path.join(os.tmpdir(), `filedrop-soap-${randomUUID()}.xml`);
-          await writeFile(tempPath, responseBody, "utf8");
+          await runWithRetries(retryPolicy, async () => {
+            await writeFile(tempPath!, responseBody, "utf8");
+          });
           uploadPath = tempPath;
         }
-        const remoteName = savedName || applyFilenameMask(naming, file.name);
+        const remoteName = savedName || desiredName;
         const remoteTarget = path.posix.join(integration.ftpRemotePath || ".", remoteName);
-        await ftpUploadFile(ftpConn, uploadPath, remoteTarget);
+        await runWithRetries(retryPolicy, async () => {
+          await ftpUploadFile(ftpConn, uploadPath!, remoteTarget);
+        });
       } catch (err) {
-        fileErrors.push(`FTP upload failed: ${(err as Error).message}`);
+        hardFailures.push(withAttemptMessage(`FTP upload failed: ${(err as Error).message}`, retryPolicy.enabled, retryPolicy.maxAttempts));
       } finally {
         if (tempPath) { try { await unlink(tempPath); } catch { /* best effort */ } }
       }
     }
+    if (hardFailures.length > 0) {
+      const movedToDeadLetter = retryPolicy.enabled
+        ? await moveSourceToDeadLetter(
+            sourcePath,
+            sourceDir,
+            retryPolicy.deadLetterSubdirectory || "_dead-letter",
+          )
+        : null;
+      const failureMessage = movedToDeadLetter
+        ? `${hardFailures.join("; ")} (moved to dead-letter: ${movedToDeadLetter})`
+        : hardFailures.join("; ");
+      summary.filesFailed += 1;
+      summary.errors.push(`${file.relPath}: ${failureMessage}`);
+      logFileUpload({
+        timestamp: ts,
+        filename: savedName || file.name,
+        originalFilename: file.name,
+        fileSize: file.size,
+        status: "failed",
+        errorMessage: failureMessage,
+        ...logBase,
+      });
+      continue;
+    }
 
-    // Delete the source file after a successful SOAP call (when configured).
+    // Delete the source file after a fully successful run (when configured).
     if (integration.deleteSourceAfterRun) {
-      try { await unlink(sourcePath); } catch (err) { fileErrors.push(`delete source failed: ${(err as Error).message}`); }
+      try {
+        await runWithRetries(retryPolicy, async () => {
+          await unlink(sourcePath);
+        });
+      } catch (err) {
+        warnings.push(`delete source failed: ${(err as Error).message}`);
+      }
     }
 
     summary.filesOk += 1;
-    if (fileErrors.length > 0) summary.errors.push(`${file.relPath}: ${fileErrors.join("; ")}`);
+    if (warnings.length > 0) summary.errors.push(`${file.relPath}: ${warnings.join("; ")}`);
     logFileUpload({
       timestamp: ts,
       filename: savedName || file.name,
       originalFilename: file.name,
       fileSize: Buffer.byteLength(responseBody),
       status: "success",
-      errorMessage: fileErrors.length > 0 ? fileErrors.join("; ") : undefined,
+      errorMessage: warnings.length > 0 ? warnings.join("; ") : undefined,
       ...logBase,
     });
   }
@@ -394,6 +514,21 @@ export async function runIntegration(
       });
     }
   }
+
+  emitIntegrationWebhook(integration, {
+    failed: summary.filesFailed > 0 || summary.status === "failed",
+    payload: {
+      integrationId: integration.id,
+      integrationName: integration.name,
+      trigger,
+      status: summary.status,
+      filesTotal: summary.filesTotal,
+      filesOk: summary.filesOk,
+      filesFailed: summary.filesFailed,
+      filesSkipped: summary.filesSkipped,
+      errors: summary.errors.slice(0, 5),
+    },
+  });
 
   return summary;
 }

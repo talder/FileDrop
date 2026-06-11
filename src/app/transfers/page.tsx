@@ -88,6 +88,13 @@ export default function TransfersPage() {
   const [fSchedMode, setFSchedMode] = useState<"interval" | "daily">("interval");
   const [fNotifyOn, setFNotifyOn] = useState<"none" | "failures" | "all">("none");
   const [fNotifyEmail, setFNotifyEmail] = useState("");
+  const [fWebhookOn, setFWebhookOn] = useState<"none" | "failures" | "all">("none");
+  const [fWebhookUrl, setFWebhookUrl] = useState("");
+  const [fWebhookSecret, setFWebhookSecret] = useState("");
+  const [fRetryEnabled, setFRetryEnabled] = useState(false);
+  const [fRetryMaxAttempts, setFRetryMaxAttempts] = useState("3");
+  const [fRetryBackoffSeconds, setFRetryBackoffSeconds] = useState("5");
+  const [fRetryDeadLetter, setFRetryDeadLetter] = useState("_dead-letter");
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
@@ -122,7 +129,10 @@ export default function TransfersPage() {
     setFNamingPreset(0); setFNamingMask("");
     setFConflict("skip"); setFDeleteSource(false);
     setFSchedEnabled(false); setFSchedEvery("5"); setFSchedUnit("minutes"); setFSchedAtTime(""); setFSchedMode("interval");
-    setFNotifyOn("none"); setFNotifyEmail(""); setFormError("");
+    setFNotifyOn("none"); setFNotifyEmail("");
+    setFWebhookOn("none"); setFWebhookUrl(""); setFWebhookSecret("");
+    setFRetryEnabled(false); setFRetryMaxAttempts("3"); setFRetryBackoffSeconds("5"); setFRetryDeadLetter("_dead-letter");
+    setFormError("");
     setShowModal(true);
   };
 
@@ -153,6 +163,13 @@ export default function TransfersPage() {
     setFSchedUnit(t.schedule?.unit || "minutes"); setFSchedAtTime(t.schedule?.atTime || "");
     setFSchedMode(t.schedule?.unit === "days" && t.schedule?.atTime ? "daily" : "interval");
     setFNotifyOn(t.notifications?.on || "none"); setFNotifyEmail(t.notifications?.email || "");
+    setFWebhookOn(t.webhook?.on || "none");
+    setFWebhookUrl(t.webhook?.url || "");
+    setFWebhookSecret(t.webhook?.secret || "");
+    setFRetryEnabled(!!t.retryPolicy?.enabled);
+    setFRetryMaxAttempts(String(t.retryPolicy?.maxAttempts || 3));
+    setFRetryBackoffSeconds(String(t.retryPolicy?.backoffSeconds || 5));
+    setFRetryDeadLetter(t.retryPolicy?.deadLetterSubdirectory || "_dead-letter");
     setFormError("");
     setShowModal(true);
   };
@@ -192,6 +209,15 @@ export default function TransfersPage() {
             atTime: fSchedUnit === "days" && fSchedAtTime ? fSchedAtTime : undefined,
           },
       notifications: fNotifyOn !== "none" && fNotifyEmail ? { on: fNotifyOn, email: fNotifyEmail } : { on: "none", email: "" },
+      webhook: fWebhookOn !== "none" && fWebhookUrl.trim()
+        ? { on: fWebhookOn, url: fWebhookUrl.trim(), secret: fWebhookSecret.trim() || undefined }
+        : { on: "none", url: "" },
+      retryPolicy: {
+        enabled: fRetryEnabled,
+        maxAttempts: Math.max(1, parseInt(fRetryMaxAttempts) || 3),
+        backoffSeconds: Math.max(0, parseInt(fRetryBackoffSeconds) || 5),
+        deadLetterSubdirectory: fRetryDeadLetter.trim() || "_dead-letter",
+      },
     };
 
     const url = editTarget ? `/api/transfers/${editTarget.id}` : "/api/transfers";
@@ -513,6 +539,32 @@ export default function TransfersPage() {
                     )}
                   </div>
 
+                  {/* Retry + Dead-letter */}
+                  <div className="p-3 rounded-lg border border-border space-y-3">
+                    <div className="flex items-center gap-2">
+                      <button className={`toggle ${fRetryEnabled ? "active" : ""}`} onClick={() => setFRetryEnabled(!fRetryEnabled)}><span className="toggle-knob" /></button>
+                      <span className="text-sm font-medium text-text-secondary">Retry failed file operations and dead-letter exhausted failures</span>
+                    </div>
+                    {fRetryEnabled && (
+                      <>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="input-label">Max Attempts</label>
+                            <input className="input" type="number" min={1} value={fRetryMaxAttempts} onChange={(e) => setFRetryMaxAttempts(e.target.value)} />
+                          </div>
+                          <div>
+                            <label className="input-label">Backoff Seconds</label>
+                            <input className="input" type="number" min={0} value={fRetryBackoffSeconds} onChange={(e) => setFRetryBackoffSeconds(e.target.value)} />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="input-label">Dead-letter Subdirectory</label>
+                          <input className="input" value={fRetryDeadLetter} onChange={(e) => setFRetryDeadLetter(e.target.value)} placeholder="_dead-letter" />
+                        </div>
+                      </>
+                    )}
+                  </div>
+
                   {/* Notifications */}
                   <div className="p-3 rounded-lg border border-border space-y-3">
                     <p className="text-xs font-semibold text-text-muted uppercase">Email Notifications</p>
@@ -529,6 +581,31 @@ export default function TransfersPage() {
                         <label className="input-label">Email Address</label>
                         <input className="input" type="email" value={fNotifyEmail} onChange={(e) => setFNotifyEmail(e.target.value)} placeholder="alerts@example.com" />
                       </div>
+                    )}
+                  </div>
+
+                  {/* Webhook Notifications */}
+                  <div className="p-3 rounded-lg border border-border space-y-3">
+                    <p className="text-xs font-semibold text-text-muted uppercase">Webhook Notifications</p>
+                    <div>
+                      <label className="input-label">Notify on</label>
+                      <select className="select" value={fWebhookOn} onChange={(e) => setFWebhookOn(e.target.value as "none" | "failures" | "all")}>
+                        <option value="none">Disabled</option>
+                        <option value="failures">Failures only</option>
+                        <option value="all">Every run</option>
+                      </select>
+                    </div>
+                    {fWebhookOn !== "none" && (
+                      <>
+                        <div>
+                          <label className="input-label">Webhook URL</label>
+                          <input className="input" value={fWebhookUrl} onChange={(e) => setFWebhookUrl(e.target.value)} placeholder="https://example.com/webhooks/filedrop" />
+                        </div>
+                        <div>
+                          <label className="input-label">Webhook Secret (optional)</label>
+                          <input className="input" value={fWebhookSecret} onChange={(e) => setFWebhookSecret(e.target.value)} placeholder="shared secret for signature verification" />
+                        </div>
+                      </>
                     )}
                   </div>
 

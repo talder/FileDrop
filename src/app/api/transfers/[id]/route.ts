@@ -5,7 +5,23 @@ import { getSftpConnectionById } from "@/lib/sftp-connections";
 import { getDestinationById } from "@/lib/destinations";
 import { rescheduleTransfer, unscheduleTransfer } from "@/lib/scheduler";
 import { validateSchedule, normalizeSchedule } from "@/lib/transfer-util";
+import { normalizeRetryPolicy } from "@/lib/retry-policy";
 import { auditLog, getRequestIp } from "@/lib/audit";
+
+function normalizeNotificationMode(value: unknown): "none" | "failures" | "all" {
+  if (value === "all" || value === "failures") return value;
+  return "none";
+}
+
+function normalizeWebhook(input: unknown): { url: string; on: "none" | "failures" | "all"; secret?: string } | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const config = input as { url?: unknown; on?: unknown; secret?: unknown };
+  const url = typeof config.url === "string" ? config.url.trim() : "";
+  const on = normalizeNotificationMode(config.on);
+  const secret = typeof config.secret === "string" ? config.secret.trim() : "";
+  if (!url || on === "none") return undefined;
+  return { url, on, ...(secret ? { secret } : {}) };
+}
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
@@ -66,6 +82,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     transfer.deleteSourceAfterTransfer = !!body.deleteSourceAfterTransfer;
   }
   if (body.notifications !== undefined) transfer.notifications = body.notifications || undefined;
+  if (body.webhook !== undefined) transfer.webhook = normalizeWebhook(body.webhook);
+  if (body.retryPolicy !== undefined) transfer.retryPolicy = normalizeRetryPolicy(body.retryPolicy);
   if (body.schedule !== undefined) {
     const schedule = normalizeSchedule(body.schedule);
     const check = validateSchedule(schedule);

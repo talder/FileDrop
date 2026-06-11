@@ -4,6 +4,7 @@ export async function register() {
     const { migrateSftpEndpoints } = await import("./lib/migrate-sftp");
     const { startSftpServer } = await import("./lib/sftp-server");
     const { startScheduler } = await import("./lib/scheduler");
+    const { startRetentionSweep } = await import("./lib/retention");
 
     // Migrate any legacy SFTP-client endpoints to connections + transfers first,
     // so the scheduler picks up the migrated transfers below.
@@ -22,5 +23,7 @@ export async function register() {
     startScheduler().catch((err) => {
       console.error("[instrumentation] Failed to start scheduler:", err);
     });
+
+    startRetentionSweep();
   }
 }

@@ -5,6 +5,28 @@ import type { DropEndpoint } from "@/lib/types";
 
 const ENDPOINTS_FILE = "endpoints.json";
 
+function normalizeNotificationMode(value: unknown): "none" | "failures" | "all" {
+  if (value === "all" || value === "failures") return value;
+  return "none";
+}
+
+function normalizeWebhook(input: unknown): DropEndpoint["webhook"] | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const config = input as { url?: unknown; on?: unknown; secret?: unknown };
+  const url = typeof config.url === "string" ? config.url.trim() : "";
+  const on = normalizeNotificationMode(config.on);
+  const secret = typeof config.secret === "string" ? config.secret.trim() : "";
+  if (!url || on === "none") return undefined;
+  return { url, on, ...(secret ? { secret } : {}) };
+}
+
+function normalizeRetentionDays(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const numeric = Math.floor(Number(value));
+  if (!Number.isFinite(numeric) || numeric < 0) return undefined;
+  return numeric;
+}
+
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -39,6 +61,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   if (body.fileNaming !== undefined) ep.fileNaming = body.fileNaming;
   if (body.allowRetrieval !== undefined) ep.allowRetrieval = body.allowRetrieval;
   if (body.notifications !== undefined) ep.notifications = body.notifications;
+  if (body.webhook !== undefined) ep.webhook = normalizeWebhook(body.webhook);
+  if (body.retentionDays !== undefined) ep.retentionDays = normalizeRetentionDays(body.retentionDays);
+  if (body.rejectDuplicates !== undefined) ep.rejectDuplicates = !!body.rejectDuplicates;
   ep.updatedAt = new Date().toISOString();
 
   endpoints[idx] = ep;

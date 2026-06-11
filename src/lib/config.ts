@@ -44,11 +44,13 @@ export function getDb(): BetterSqlite3.Database {
       api_key_party     TEXT NOT NULL DEFAULT '',
       endpoint_slug     TEXT NOT NULL,
       destination_path  TEXT NOT NULL DEFAULT '',
+      checksum_sha256   TEXT NOT NULL DEFAULT '',
       status            TEXT NOT NULL DEFAULT 'success',
       error_message     TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_file_log_ts ON file_log(timestamp);
     CREATE INDEX IF NOT EXISTS idx_file_log_endpoint ON file_log(endpoint_slug);
+    CREATE INDEX IF NOT EXISTS idx_file_log_endpoint_checksum ON file_log(endpoint_slug, checksum_sha256);
     CREATE INDEX IF NOT EXISTS idx_file_log_status ON file_log(status);
   `);
 
@@ -150,6 +152,12 @@ export function getDb(): BetterSqlite3.Database {
   try {
     _db.exec(`ALTER TABLE file_log ADD COLUMN destination_name TEXT NOT NULL DEFAULT ''`);
   } catch { /* column already exists */ }
+  try {
+    _db.exec(`ALTER TABLE file_log ADD COLUMN checksum_sha256 TEXT NOT NULL DEFAULT ''`);
+  } catch { /* column already exists */ }
+  try {
+    _db.exec(`CREATE INDEX IF NOT EXISTS idx_file_log_endpoint_checksum ON file_log(endpoint_slug, checksum_sha256)`);
+  } catch { /* ignore */ }
 
   return _db;
 }

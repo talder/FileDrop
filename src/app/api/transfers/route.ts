@@ -6,6 +6,7 @@ import { getSftpConnectionById } from "@/lib/sftp-connections";
 import { getDestinationById } from "@/lib/destinations";
 import { rescheduleTransfer } from "@/lib/scheduler";
 import { validateSchedule, normalizeSchedule } from "@/lib/transfer-util";
+import { normalizeRetryPolicy } from "@/lib/retry-policy";
 import { auditLog, getRequestIp } from "@/lib/audit";
 import type {
   Transfer,
@@ -17,6 +18,21 @@ import type {
 
 const DEFAULT_SELECTION: TransferSelection = { mode: "all" };
 const DEFAULT_SCHEDULE: TransferSchedule = { enabled: false, every: 1, unit: "minutes" };
+
+function normalizeNotificationMode(value: unknown): "none" | "failures" | "all" {
+  if (value === "all" || value === "failures") return value;
+  return "none";
+}
+
+function normalizeWebhook(input: unknown): Transfer["webhook"] | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const config = input as { url?: unknown; on?: unknown; secret?: unknown };
+  const url = typeof config.url === "string" ? config.url.trim() : "";
+  const on = normalizeNotificationMode(config.on);
+  const secret = typeof config.secret === "string" ? config.secret.trim() : "";
+  if (!url || on === "none") return undefined;
+  return { url, on, ...(secret ? { secret } : {}) };
+}
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -75,6 +91,8 @@ export async function POST(request: Request) {
       deleteSourceAfterTransfer: !!body.deleteSourceAfterTransfer,
       schedule,
       notifications: body.notifications || undefined,
+      webhook: normalizeWebhook(body.webhook),
+      retryPolicy: body.retryPolicy !== undefined ? normalizeRetryPolicy(body.retryPolicy) : undefined,
       createdAt: new Date().toISOString(),
     };
 

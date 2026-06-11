@@ -43,9 +43,14 @@ export default function EndpointsPage() {
   const [fNamingPreset, setFNamingPreset] = useState(1); // index in PRESETS
   const [fNamingMask, setFNamingMask] = useState("");
   const [fAllowRetrieval, setFAllowRetrieval] = useState(false);
+  const [fRetentionDays, setFRetentionDays] = useState("");
+  const [fRejectDuplicates, setFRejectDuplicates] = useState(false);
   // Notifications
   const [fNotifyOn, setFNotifyOn] = useState<"none" | "failures" | "all">("none");
   const [fNotifyEmail, setFNotifyEmail] = useState("");
+  const [fWebhookOn, setFWebhookOn] = useState<"none" | "failures" | "all">("none");
+  const [fWebhookUrl, setFWebhookUrl] = useState("");
+  const [fWebhookSecret, setFWebhookSecret] = useState("");
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
@@ -74,7 +79,10 @@ export default function EndpointsPage() {
     setFSlug(""); setFDesc(""); setFType("api"); setFDestId(destinations[0]?.id || ""); setFSubdir("");
     setFExtensions(""); setFMaxSize(""); setFEnabled(true); setFNamingPreset(1); setFNamingMask("");
     setFAllowRetrieval(false);
-    setFNotifyOn("none"); setFNotifyEmail(""); setFormError("");
+    setFRetentionDays(""); setFRejectDuplicates(false);
+    setFNotifyOn("none"); setFNotifyEmail("");
+    setFWebhookOn("none"); setFWebhookUrl(""); setFWebhookSecret("");
+    setFormError("");
     setShowModal(true);
   };
 
@@ -89,6 +97,8 @@ export default function EndpointsPage() {
     setFSubdir(e.subdirectory || ""); setFExtensions(e.allowedExtensions.join(", "));
     setFMaxSize(e.maxFileSize > 0 ? String(e.maxFileSize / 1024 / 1024) : ""); setFEnabled(e.enabled);
     setFAllowRetrieval(e.allowRetrieval || false);
+    setFRetentionDays(e.retentionDays !== undefined ? String(e.retentionDays) : "");
+    setFRejectDuplicates(!!e.rejectDuplicates);
     // File naming
     const fn = e.fileNaming || { mode: "mask", mask: "" };
     if (fn.mode === "original") { setFNamingPreset(0); setFNamingMask(""); }
@@ -98,6 +108,9 @@ export default function EndpointsPage() {
       else { setFNamingPreset(5); setFNamingMask(fn.mask); } // Custom
     }
     setFNotifyOn(e.notifications?.on || "none"); setFNotifyEmail(e.notifications?.email || "");
+    setFWebhookOn(e.webhook?.on || "none");
+    setFWebhookUrl(e.webhook?.url || "");
+    setFWebhookSecret(e.webhook?.secret || "");
     setFormError("");
     setShowModal(true);
   };
@@ -113,11 +126,18 @@ export default function EndpointsPage() {
       slug: fSlug, description: fDesc, type: fType, destinationId: fDestId, subdirectory: fSubdir || undefined,
       allowedExtensions: exts, maxFileSize: fMaxSize ? parseFloat(fMaxSize) * 1024 * 1024 : 0, enabled: fEnabled,
       fileNaming, allowRetrieval: fAllowRetrieval,
+      retentionDays: fRetentionDays.trim() ? Math.max(0, Math.floor(Number(fRetentionDays))) : null,
+      rejectDuplicates: fRejectDuplicates,
     };
     if (fNotifyOn !== "none" && fNotifyEmail) {
       body.notifications = { on: fNotifyOn, email: fNotifyEmail };
     } else {
       body.notifications = { on: "none", email: "" };
+    }
+    if (fWebhookOn !== "none" && fWebhookUrl.trim()) {
+      body.webhook = { on: fWebhookOn, url: fWebhookUrl.trim(), secret: fWebhookSecret.trim() || undefined };
+    } else {
+      body.webhook = { on: "none", url: "" };
     }
     const url = editTarget ? `/api/endpoints/${editTarget.id}` : "/api/endpoints";
     const method = editTarget ? "PUT" : "POST";
@@ -243,6 +263,10 @@ export default function EndpointsPage() {
                     <label className="input-label">Max File Size (MB, empty = global default)</label>
                     <input className="input" type="number" value={fMaxSize} onChange={(e) => setFMaxSize(e.target.value)} placeholder="50" />
                   </div>
+                  <div>
+                    <label className="input-label">Retention Override (days, empty = global setting)</label>
+                    <input className="input" type="number" min={0} value={fRetentionDays} onChange={(e) => setFRetentionDays(e.target.value)} placeholder="30" />
+                  </div>
                   {/* Endpoint Type */}
                   <div>
                     <label className="input-label">Endpoint Type</label>
@@ -292,6 +316,10 @@ export default function EndpointsPage() {
                       <button className={`toggle ${fAllowRetrieval ? "active" : ""}`} onClick={() => setFAllowRetrieval(!fAllowRetrieval)}><span className="toggle-knob" /></button>
                       <span className="text-sm text-text-secondary">Allow file retrieval (GET)</span>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <button className={`toggle ${fRejectDuplicates ? "active" : ""}`} onClick={() => setFRejectDuplicates(!fRejectDuplicates)}><span className="toggle-knob" /></button>
+                      <span className="text-sm text-text-secondary">Reject duplicate uploads by SHA-256 checksum</span>
+                    </div>
                   </div>
 
                   {/* Email Notifications */}
@@ -310,6 +338,31 @@ export default function EndpointsPage() {
                         <label className="input-label">Email Address</label>
                         <input className="input" type="email" value={fNotifyEmail} onChange={(e) => setFNotifyEmail(e.target.value)} placeholder="alerts@example.com" />
                       </div>
+                    )}
+                  </div>
+
+                  {/* Webhook Notifications */}
+                  <div className="p-3 rounded-lg border border-border space-y-3">
+                    <p className="text-xs font-semibold text-text-muted uppercase">Webhook Notifications</p>
+                    <div>
+                      <label className="input-label">Notify on</label>
+                      <select className="select" value={fWebhookOn} onChange={(e) => setFWebhookOn(e.target.value as "none" | "failures" | "all")}>
+                        <option value="none">Disabled</option>
+                        <option value="failures">Failures only</option>
+                        <option value="all">All uploads (success + failure)</option>
+                      </select>
+                    </div>
+                    {fWebhookOn !== "none" && (
+                      <>
+                        <div>
+                          <label className="input-label">Webhook URL</label>
+                          <input className="input" value={fWebhookUrl} onChange={(e) => setFWebhookUrl(e.target.value)} placeholder="https://example.com/webhooks/filedrop" />
+                        </div>
+                        <div>
+                          <label className="input-label">Webhook Secret (optional)</label>
+                          <input className="input" value={fWebhookSecret} onChange={(e) => setFWebhookSecret(e.target.value)} placeholder="shared secret for signature verification" />
+                        </div>
+                      </>
                     )}
                   </div>
                   {formError && <p className="text-sm text-red-500">{formError}</p>}
