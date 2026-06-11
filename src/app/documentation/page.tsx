@@ -6,6 +6,7 @@ import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import { FILE_NAMING_TOKENS } from "@/lib/file-naming";
 import type { SanitizedUser } from "@/lib/types";
+import packageJson from "../../../package.json";
 const FILE_NAMING_TOKEN_DESCRIPTIONS: Record<string, string> = {
   "{ORIGINAL}": "Original filename without extension",
   "{EXT}": "Extension with dot (.pdf)",
@@ -20,6 +21,7 @@ const FILE_NAMING_TOKEN_DESCRIPTIONS: Record<string, string> = {
   "{UUID8}": "First 8 chars of UUID",
   "{SEQ}": "Sequence number",
 };
+const APP_VERSION = `v${packageJson.version}`;
 
 export default function DocumentationPage() {
   const router = useRouter();
@@ -186,6 +188,17 @@ sftp> bye`}</CodeBlock>
               <CodeBlock title="Environment" lang="bash">{`TRUST_PROXY=true
 SECURE_COOKIES=true`}</CodeBlock>
               <p className="mt-2 text-sm text-text-muted">Important: set <code>client_max_body_size</code> (nginx) or <code>LimitRequestBody</code> (Apache) to at least your max upload size.</p>
+            </Section>
+
+            <Section id="changelog" title={`Changelog (${APP_VERSION})`}>
+              <ul className="list-disc list-inside space-y-1 text-sm text-text-secondary">
+                <li>Topbar search now includes external Doc-it API results.</li>
+                <li>Global <code>Browse /DATA</code> control moved to the app top bar.</li>
+                <li>Folder browser now shows files for visibility while keeping folder-only selection.</li>
+                <li>Users can change their own password in <strong>Settings → Security</strong>.</li>
+                <li>Admins can promote/demote users in <strong>Settings → Users</strong>.</li>
+                <li>App favicon now matches the topbar FileDrop icon.</li>
+              </ul>
             </Section>
 
             <div className="h-12" />

@@ -2,9 +2,10 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Sun, Moon, LogOut, User, ChevronDown, Wifi, Shield, BookOpen, Search, FolderOpen } from "lucide-react";
+import { Sun, Moon, LogOut, User, ChevronDown, Wifi, Shield, BookOpen, Search, FolderOpen, History } from "lucide-react";
 import { useTheme, isLightTheme, type Theme } from "@/components/ThemeProvider";
 import type { SanitizedUser } from "@/lib/types";
+import packageJson from "../../package.json";
 
 interface ThemeOption { value: Theme; label: string; swatch: string; }
 interface AppSearchItem {
@@ -71,6 +72,7 @@ interface TopbarProps {
   user: SanitizedUser | null;
   onLogout: () => void;
 }
+const APP_VERSION = `v${packageJson.version}`;
 
 export default function Topbar({ user, onLogout }: TopbarProps) {
   const router = useRouter();
@@ -295,9 +297,15 @@ export default function Topbar({ user, onLogout }: TopbarProps) {
               <div className="px-3 py-2 text-xs text-text-muted">
                 Signed in as <strong className="text-text-primary">{user?.username}</strong>
               </div>
+              <div className="px-3 pb-2 text-xs text-text-muted">
+                Version <strong className="text-text-primary">{APP_VERSION}</strong>
+              </div>
               <div className="dropdown-divider" />
               <button className="dropdown-item" onClick={() => { setUserMenuOpen(false); router.push("/documentation"); }}>
                 <BookOpen className="w-4 h-4" /> Documentation
+              </button>
+              <button className="dropdown-item" onClick={() => { setUserMenuOpen(false); router.push("/documentation#changelog"); }}>
+                <History className="w-4 h-4" /> Changelog
               </button>
               <button className="dropdown-item" onClick={() => { setUserMenuOpen(false); router.push("/connections"); }}>
                 <Wifi className="w-4 h-4" /> Connection Log
