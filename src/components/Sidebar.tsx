@@ -1,13 +1,16 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Globe, FolderOpen, KeyRound, Settings, Wifi, Shield, BookOpen, Server, ArrowRightLeft } from "lucide-react";
+import { LayoutDashboard, Globe, Globe2, HardDrive, Zap, FolderOpen, KeyRound, Settings, Wifi, Shield, BookOpen, Server, ArrowRightLeft } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/",              label: "Dashboard",      icon: LayoutDashboard },
   { href: "/endpoints",     label: "Endpoints",      icon: Globe },
   { href: "/destinations",  label: "Destinations",   icon: FolderOpen },
   { href: "/sftp-servers",  label: "SFTP Servers",   icon: Server },
+  { href: "/soap-endpoints",label: "SOAP Endpoints", icon: Globe2 },
+  { href: "/ftp-servers",   label: "FTP Servers",    icon: HardDrive },
+  { href: "/integrations",  label: "Integrations",   icon: Zap },
   { href: "/transfers",     label: "Transfers",      icon: ArrowRightLeft },
   { href: "/api-keys",      label: "API Keys",       icon: KeyRound },
   { href: "/connections",   label: "Connections",    icon: Wifi },
