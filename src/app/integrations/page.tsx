@@ -209,7 +209,7 @@ export default function IntegrationsPage() {
             enabled: fSchedEnabled,
             every: Math.max(1, parseInt(fSchedEvery) || 1),
             unit: fSchedUnit,
-            atTime: undefined,
+            atTime: fSchedUnit === "days" && fSchedAtTime ? fSchedAtTime : undefined,
           },
       notifications: fNotifyOn !== "none" && fNotifyEmail ? { on: fNotifyOn, email: fNotifyEmail } : { on: "none", email: "" },
     };
@@ -505,21 +505,38 @@ export default function IntegrationsPage() {
                             <p className="text-xs text-text-muted">Runs at {fSchedAtTime || "the chosen time"} {(parseInt(fSchedEvery) || 1) > 1 ? `every ${fSchedEvery} days` : "every day"}.</p>
                           </>
                         ) : (
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="input-label">Every</label>
-                              <input className="input" type="number" min={1} value={fSchedEvery} onChange={(e) => setFSchedEvery(e.target.value)} />
+                          <>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="input-label">Every</label>
+                                <input className="input" type="number" min={1} value={fSchedEvery} onChange={(e) => setFSchedEvery(e.target.value)} />
+                              </div>
+                              <div>
+                                <label className="input-label">Unit</label>
+                                <select
+                                  className="select"
+                                  value={fSchedUnit}
+                                  onChange={(e) => {
+                                    const unit = e.target.value as TransferScheduleUnit;
+                                    setFSchedUnit(unit);
+                                    if (unit !== "days") setFSchedAtTime("");
+                                  }}
+                                >
+                                  <option value="seconds">Seconds</option>
+                                  <option value="minutes">Minutes</option>
+                                  <option value="hours">Hours</option>
+                                  <option value="days">Days</option>
+                                </select>
+                              </div>
                             </div>
-                            <div>
-                              <label className="input-label">Unit</label>
-                              <select className="select" value={fSchedUnit} onChange={(e) => setFSchedUnit(e.target.value as TransferScheduleUnit)}>
-                                <option value="seconds">Seconds</option>
-                                <option value="minutes">Minutes</option>
-                                <option value="hours">Hours</option>
-                                <option value="days">Days</option>
-                              </select>
-                            </div>
-                          </div>
+                            {fSchedUnit === "days" && (
+                              <div>
+                                <label className="input-label">At time (optional HH:MM)</label>
+                                <input className="input" type="time" value={fSchedAtTime} onChange={(e) => setFSchedAtTime(e.target.value)} />
+                                <p className="text-xs text-text-muted mt-1">Set this to run every {parseInt(fSchedEvery) || 1} day(s) at a fixed time.</p>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     )}
