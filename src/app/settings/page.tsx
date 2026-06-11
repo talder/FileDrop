@@ -31,6 +31,11 @@ export default function SettingsPage() {
 
   // Security
   const [rateLimit, setRateLimit] = useState("60");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [nextPassword, setNextPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordChangeError, setPasswordChangeError] = useState("");
+  const [passwordChangeSaved, setPasswordChangeSaved] = useState(false);
 
   // Email / SMTP
   const [smtpHost, setSmtpHost] = useState("");
@@ -108,6 +113,37 @@ export default function SettingsPage() {
     });
     setVlSaved(true);
     setTimeout(() => setVlSaved(false), 2000);
+  };
+  const handleChangePassword = async () => {
+    setPasswordChangeError("");
+    setPasswordChangeSaved(false);
+    if (!currentPassword || !nextPassword || !confirmPassword) {
+      setPasswordChangeError("Please fill in all password fields");
+      return;
+    }
+    if (nextPassword.length < 8) {
+      setPasswordChangeError("New password must be at least 8 characters");
+      return;
+    }
+    if (nextPassword !== confirmPassword) {
+      setPasswordChangeError("New password and confirmation do not match");
+      return;
+    }
+    const res = await fetch("/api/auth/change-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentPassword, newPassword: nextPassword }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setPasswordChangeError(data.error || "Failed to update password");
+      return;
+    }
+    setCurrentPassword("");
+    setNextPassword("");
+    setConfirmPassword("");
+    setPasswordChangeSaved(true);
+    setTimeout(() => setPasswordChangeSaved(false), 2000);
   };
 
   const handleAddUser = async () => {
@@ -237,6 +273,26 @@ export default function SettingsPage() {
               <button className="btn btn-primary" onClick={handleSaveSettings}>
                 <Save className="w-4 h-4" /> {saved ? "Saved!" : "Save Settings"}
               </button>
+              <div className="p-4 border border-border rounded-lg space-y-3">
+                <p className="text-xs font-semibold text-text-muted uppercase">Change Password</p>
+                <div>
+                  <label className="input-label">Current Password</label>
+                  <input className="input" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+                </div>
+                <div>
+                  <label className="input-label">New Password</label>
+                  <input className="input" type="password" value={nextPassword} onChange={(e) => setNextPassword(e.target.value)} placeholder="Min 8 characters" />
+                </div>
+                <div>
+                  <label className="input-label">Confirm New Password</label>
+                  <input className="input" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+                </div>
+                {passwordChangeError && <p className="text-sm text-red-500">{passwordChangeError}</p>}
+                {passwordChangeSaved && <p className="text-sm text-green-600">Password updated.</p>}
+                <button className="btn btn-secondary" onClick={handleChangePassword}>
+                  Save New Password
+                </button>
+              </div>
             </div>
           )}
           {tab === "email" && (

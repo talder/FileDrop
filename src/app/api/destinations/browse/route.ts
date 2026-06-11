@@ -35,6 +35,13 @@ export async function GET(request: Request) {
         path: path.join(resolvedPath, entry.name),
       }))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    const files = entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => ({
+        name: entry.name,
+        path: path.join(resolvedPath, entry.name),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 
     const parentPath = resolvedPath === DATA_ROOT ? null : path.dirname(resolvedPath);
 
@@ -43,6 +50,7 @@ export async function GET(request: Request) {
       currentPath: resolvedPath,
       parentPath,
       directories,
+      files,
     });
   } catch (error) {
     const err = error as NodeJS.ErrnoException;

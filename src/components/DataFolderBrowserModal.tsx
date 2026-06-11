@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronRight, FolderOpen, ArrowUp, RefreshCw, Check, X } from "lucide-react";
+import { ChevronRight, FolderOpen, FileText, ArrowUp, RefreshCw, Check, X } from "lucide-react";
 import ModalOverlay from "@/components/ModalOverlay";
 
 interface BrowseDirectory {
+  name: string;
+  path: string;
+}
+interface BrowseFile {
   name: string;
   path: string;
 }
@@ -14,6 +18,7 @@ interface BrowseResponse {
   currentPath: string;
   parentPath: string | null;
   directories: BrowseDirectory[];
+  files?: BrowseFile[];
 }
 
 interface DataFolderBrowserModalProps {
@@ -42,6 +47,7 @@ export default function DataFolderBrowserModal({
   const [rootPath, setRootPath] = useState<string>(DATA_ROOT);
   const [parentPath, setParentPath] = useState<string | null>(null);
   const [directories, setDirectories] = useState<BrowseDirectory[]>([]);
+  const [files, setFiles] = useState<BrowseFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -69,10 +75,12 @@ export default function DataFolderBrowserModal({
         setRootPath(payload.root || DATA_ROOT);
         setParentPath(payload.parentPath || null);
         setDirectories(Array.isArray(payload.directories) ? payload.directories : []);
+        setFiles(Array.isArray(payload.files) ? payload.files : []);
       } catch (err) {
         if (!active) return;
         setError((err as Error).message || "Failed to browse folders");
         setDirectories([]);
+        setFiles([]);
       } finally {
         if (!active) return;
         setLoading(false);
@@ -122,10 +130,13 @@ export default function DataFolderBrowserModal({
             <p className="p-3 text-sm text-text-muted">Loading folders…</p>
           ) : error ? (
             <p className="p-3 text-sm text-red-500">{error}</p>
-          ) : directories.length === 0 ? (
-            <p className="p-3 text-sm text-text-muted">No subfolders in this location.</p>
+          ) : directories.length === 0 && files.length === 0 ? (
+            <p className="p-3 text-sm text-text-muted">No subfolders or files in this location.</p>
           ) : (
             <div className="divide-y divide-border">
+              {directories.length > 0 && (
+                <p className="px-3 py-2 text-xs font-semibold text-text-muted uppercase tracking-wide">Folders</p>
+              )}
               {directories.map((dir) => (
                 <button
                   key={dir.path}
@@ -137,10 +148,19 @@ export default function DataFolderBrowserModal({
                   <ChevronRight className="w-4 h-4 text-text-muted" />
                 </button>
               ))}
+              {files.length > 0 && (
+                <p className="px-3 py-2 text-xs font-semibold text-text-muted uppercase tracking-wide">Files</p>
+              )}
+              {files.map((file) => (
+                <div key={file.path} className="w-full px-3 py-2 flex items-center gap-2 text-text-muted">
+                  <FileText className="w-4 h-4" />
+                  <span className="flex-1 text-sm">{file.name}</span>
+                </div>
+              ))}
             </div>
           )}
         </div>
-        <p className="text-xs text-text-muted">Browsing is restricted to folders inside /DATA.</p>
+        <p className="text-xs text-text-muted">Browsing is restricted to folders inside /DATA. Files are shown for visibility; selecting still uses folders.</p>
       </div>
       <div className="modal-footer">
         <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
