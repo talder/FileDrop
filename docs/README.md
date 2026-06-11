@@ -9,6 +9,7 @@ A secure web service for receiving files from external parties via HTTP and for 
 - **Transfers** — Move files from or to an SFTP server (no slug required): pull remote files into a destination, or push files from a destination to a remote server. Supports file selection, conflict policy, scheduling, and manual runs
 - **Inbound SFTP server** — Accept files pushed by external parties to FileDrop's embedded SFTP server (configured as an `sftp-server` endpoint)
 - **Flexible destinations** — Store files on local disk, NFS shares, or SMB/CIFS shares
+- **/DATA folder browser** — Pick destination local paths from the UI by browsing folders under `/DATA`
 - **Secure API keys** — Cryptographically generated keys (SHA-256 hashed), scoped to specific endpoints
 - **Dashboard** — Real-time file activity log, stats, and mount health indicators
 - **User management** — Local user accounts with bcrypt passwords, account lockout
@@ -103,7 +104,7 @@ Configurable via Settings > Logging (see [Event Logging](#event-logging-victoria
 | `/endpoints` | Manage drop endpoints — HTTP API + inbound SFTP server (CRUD, enable/disable, copy URL) |
 | `/sftp-servers` | Manage reusable SFTP server connections (CRUD, test) |
 | `/transfers` | Manage SFTP transfers (direction, selection, schedule, conflict policy, run now, run history) |
-| `/destinations` | Manage file destinations (local/NFS/SMB, mount/unmount) |
+| `/destinations` | Manage file destinations (local/NFS/SMB, mount/unmount, browse folders under `/DATA`) |
 | `/api-keys` | Generate and manage API keys for external parties |
 | `/settings` | General settings, users, security, email, and logging config |
 | `/login` | Login page |
@@ -137,6 +138,7 @@ Configurable via Settings > Logging (see [Event Logging](#event-logging-victoria
 | `GET` | `/api/transfers/{id}/runs` | Transfer run history |
 | `GET/POST` | `/api/destinations` | List / create destinations |
 | `GET/PUT/DELETE` | `/api/destinations/{id}` | Get / update / delete destination |
+| `GET` | `/api/destinations/browse?path=/DATA/...` | List subdirectories for the folder browser (restricted to `/DATA`) |
 | `POST` | `/api/destinations/{id}/mount` | Mount NFS/SMB share |
 | `POST` | `/api/destinations/{id}/unmount` | Unmount share |
 | `POST` | `/api/destinations/{id}/test` | Test destination accessibility |
@@ -213,6 +215,15 @@ See [REVERSE-PROXY.md](./REVERSE-PROXY.md) for nginx, Apache, and Caddy configur
 ## External Party Guide
 
 See [EXTERNAL-PARTY-GUIDE.md](./EXTERNAL-PARTY-GUIDE.md) — a standalone document you can share with external parties explaining how to use the API.
+
+## Local destination folder browser (`/DATA`)
+
+When creating or editing a Destination, the **Browse /DATA** button opens a folder picker modal so you can select local paths without typing them manually.
+
+- Browsing is intentionally constrained to `/DATA`.
+- The browser only shows subdirectories (not files).
+- Navigation supports going into child folders, going up, and selecting the current folder.
+- The backing endpoint is `GET /api/destinations/browse?path=...` and rejects paths outside `/DATA`.
 
 ## NFS/SMB Mount Management
 
