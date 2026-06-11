@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Sun, Moon, LogOut, User, ChevronDown, Wifi, Shield, BookOpen } from "lucide-react";
-import { useTheme, isLightTheme, THEMES, type Theme } from "@/components/ThemeProvider";
+import { Sun, Moon, LogOut, User, ChevronDown, Wifi, Shield, BookOpen, Search, FolderOpen } from "lucide-react";
+import { useTheme, isLightTheme, type Theme } from "@/components/ThemeProvider";
 import type { SanitizedUser } from "@/lib/types";
 
 interface ThemeOption { value: Theme; label: string; swatch: string; }
@@ -31,7 +31,28 @@ const DARK_THEMES_OPTIONS: ThemeOption[] = [
   { value: "high-contrast-dark", label: "HC Dark",           swatch: "#000000" },
 ];
 
-const ALL_THEMES = [...LIGHT_THEMES_OPTIONS, ...DARK_THEMES_OPTIONS];
+interface SearchItem {
+  label: string;
+  href: string;
+  keywords: string[];
+}
+
+const SEARCH_ITEMS: SearchItem[] = [
+  { label: "Dashboard", href: "/", keywords: ["home", "stats", "activity"] },
+  { label: "Endpoints", href: "/endpoints", keywords: ["drop", "http", "slug", "upload"] },
+  { label: "Destinations", href: "/destinations", keywords: ["storage", "path", "data", "mount"] },
+  { label: "SFTP Servers", href: "/sftp-servers", keywords: ["ssh", "sftp", "connection", "remote"] },
+  { label: "Transfers", href: "/transfers", keywords: ["pull", "push", "schedule"] },
+  { label: "SOAP Endpoints", href: "/soap-connections", keywords: ["soap", "xml", "api"] },
+  { label: "FTP Servers", href: "/ftp-connections", keywords: ["ftp", "ftps"] },
+  { label: "Integrations", href: "/integrations", keywords: ["pipeline", "soap", "delivery"] },
+  { label: "API Keys", href: "/api-keys", keywords: ["key", "token", "auth"] },
+  { label: "Connection Log", href: "/connections", keywords: ["log", "requests", "ip"] },
+  { label: "Audit Log", href: "/audit-log", keywords: ["audit", "security", "events"] },
+  { label: "Settings", href: "/settings", keywords: ["config", "users", "smtp", "logging"] },
+  { label: "Documentation", href: "/documentation", keywords: ["docs", "guide", "help"] },
+  { label: "Docs — File naming tags", href: "/documentation#file-naming", keywords: ["doc-it", "tags", "token", "mask", "filename"] },
+];
 
 interface TopbarProps {
   user: SanitizedUser | null;
@@ -43,17 +64,36 @@ export default function Topbar({ user, onLogout }: TopbarProps) {
   const { theme, setTheme } = useTheme();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMenuOpen, setSearchMenuOpen] = useState(false);
   const userRef = useRef<HTMLDivElement>(null);
   const themeRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return SEARCH_ITEMS.slice(0, 8);
+    return SEARCH_ITEMS.filter((item) => {
+      if (item.label.toLowerCase().includes(query)) return true;
+      return item.keywords.some((kw) => kw.includes(query));
+    }).slice(0, 8);
+  }, [searchQuery]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (userRef.current && !userRef.current.contains(e.target as Node)) setUserMenuOpen(false);
       if (themeRef.current && !themeRef.current.contains(e.target as Node)) setThemeMenuOpen(false);
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) setSearchMenuOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  const navigateFromSearch = (href: string) => {
+    setSearchMenuOpen(false);
+    setSearchQuery("");
+    router.push(href);
+  };
 
   const themeIcon = isLightTheme(theme) ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />;
 
@@ -68,7 +108,48 @@ export default function Topbar({ user, onLogout }: TopbarProps) {
         </button>
       </div>
 
+      <div className="flex-1 px-4">
+        <div className="relative mx-auto max-w-md" ref={searchRef}>
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+          <input
+            className="input h-9 pl-9"
+            placeholder="Search pages…"
+            value={searchQuery}
+            onFocus={() => setSearchMenuOpen(true)}
+            onChange={(e) => { setSearchQuery(e.target.value); setSearchMenuOpen(true); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && searchResults.length > 0) {
+                e.preventDefault();
+                navigateFromSearch(searchResults[0].href);
+              }
+              if (e.key === "Escape") setSearchMenuOpen(false);
+            }}
+          />
+          {searchMenuOpen && (
+            <div className="dropdown-menu" style={{ left: 0, right: "auto", top: "calc(100% + 6px)", width: "100%" }}>
+              {searchResults.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-text-muted">No matches</div>
+              ) : (
+                searchResults.map((item) => (
+                  <button
+                    key={`${item.href}-${item.label}`}
+                    className="dropdown-item"
+                    onClick={() => navigateFromSearch(item.href)}
+                  >
+                    <Search className="w-3.5 h-3.5" /> {item.label}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="flex items-center gap-2">
+        <button className="btn btn-secondary btn-sm" onClick={() => router.push("/destinations?openDataBrowser=1")}>
+          <FolderOpen className="w-4 h-4" /> Browse /DATA
+        </button>
+
         {/* Theme picker */}
         <div className="relative" ref={themeRef}>
           <button

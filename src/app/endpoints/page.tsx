@@ -8,6 +8,7 @@ import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
 import ModalOverlay from "@/components/ModalOverlay";
 import type { SanitizedUser, DropEndpoint, DestinationType, EndpointType, FileNaming } from "@/lib/types";
+import { FILE_NAMING_TOKENS } from "@/lib/file-naming";
 
 const FILE_NAMING_PRESETS = [
   { label: "Keep original", mode: "original" as const, mask: "" },
@@ -75,6 +76,11 @@ export default function EndpointsPage() {
     setFAllowRetrieval(false);
     setFNotifyOn("none"); setFNotifyEmail(""); setFormError("");
     setShowModal(true);
+  };
+
+  const insertNamingToken = (token: string) => {
+    setFNamingPreset(5);
+    setFNamingMask((prev) => `${prev}${token}`);
   };
 
   const openEdit = (e: DropEndpoint) => {
@@ -257,9 +263,23 @@ export default function EndpointsPage() {
                       {FILE_NAMING_PRESETS.map((p, i) => <option key={i} value={i}>{p.label}{p.mask ? ` — ${p.mask}` : ""}</option>)}
                     </select>
                     {fNamingPreset === 5 && (
-                      <input className="input mt-2" value={fNamingMask} onChange={(e) => setFNamingMask(e.target.value)} placeholder="{YYYY}{MM}{DD}_{ORIGINAL}{EXT}" />
+                      <>
+                        <input className="input mt-2" value={fNamingMask} onChange={(e) => setFNamingMask(e.target.value)} placeholder="{YYYY}{MM}{DD}_{ORIGINAL}{EXT}" />
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {FILE_NAMING_TOKENS.map((token) => (
+                            <button
+                              key={token}
+                              type="button"
+                              className="badge badge-muted"
+                              onClick={() => insertNamingToken(token)}
+                            >
+                              {token}
+                            </button>
+                          ))}
+                        </div>
+                      </>
                     )}
-                    <p className="text-xs text-text-muted mt-1">Tokens: {'{ORIGINAL}'} {'{EXT}'} {'{YYYY}'} {'{MM}'} {'{DD}'} {'{HH}'} {'{mm}'} {'{ss}'} {'{UUID}'} {'{UUID8}'} {'{SEQ}'}</p>
+                    <p className="text-xs text-text-muted mt-1">Tip: click a tag to insert it into your custom mask.</p>
                   </div>
 
                   {/* Toggles */}

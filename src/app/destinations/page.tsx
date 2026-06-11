@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Pencil, Trash2, Power, PowerOff, TestTube, X, FolderOpen } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
@@ -26,6 +26,7 @@ interface DestinationRow {
 
 export default function DestinationsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [user, setUser] = useState<SanitizedUser | null>(null);
   const [destinations, setDestinations] = useState<DestinationRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,11 +73,17 @@ export default function DestinationsPage() {
     setFormError("");
     setShowModal(true);
   };
-
-  const openCreateWithBrowser = () => {
-    openCreate();
+  useEffect(() => {
+    if (!user) return;
+    if (searchParams.get("openDataBrowser") !== "1") return;
+    setEditTarget(null);
+    setFName(""); setFType("local"); setFLocalPath(""); setFRemoteHost(""); setFRemotePath("");
+    setFSmbDomain(""); setFSmbUsername(""); setFSmbPassword(""); setFMountOptions("");
+    setFormError("");
+    setShowModal(true);
     setShowFolderBrowser(true);
-  };
+    router.replace("/destinations");
+  }, [user, searchParams, router]);
 
   const openEdit = (d: DestinationRow) => {
     setEditTarget(d);
@@ -148,12 +155,8 @@ export default function DestinationsPage() {
         <div className="page-container">
           <div className="page-header">
             <h1 className="page-title">Destinations</h1>
-            <div className="flex items-center gap-2">
-              <button className="btn btn-secondary" onClick={openCreateWithBrowser}><FolderOpen className="w-4 h-4" /> Browse /DATA</button>
-              <button className="btn btn-primary" onClick={openCreate}><Plus className="w-4 h-4" /> Add Destination</button>
-            </div>
+            <button className="btn btn-primary" onClick={openCreate}><Plus className="w-4 h-4" /> Add Destination</button>
           </div>
-          <p className="mb-4 text-xs text-text-muted">Folder browser tip: click <span className="font-medium text-text-secondary">Browse /DATA</span> here, or open Add/Edit Destination and use the same button next to the path field.</p>
 
           {testResult && (
             <div className="mb-4 flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-accent-light)] text-sm text-accent-text">

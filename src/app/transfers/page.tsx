@@ -7,6 +7,7 @@ import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
 import ModalOverlay from "@/components/ModalOverlay";
+import { FILE_NAMING_TOKENS } from "@/lib/file-naming";
 import type {
   SanitizedUser,
   Transfer,
@@ -123,6 +124,11 @@ export default function TransfersPage() {
     setFSchedEnabled(false); setFSchedEvery("5"); setFSchedUnit("minutes"); setFSchedAtTime(""); setFSchedMode("interval");
     setFNotifyOn("none"); setFNotifyEmail(""); setFormError("");
     setShowModal(true);
+  };
+
+  const insertNamingToken = (token: string) => {
+    setFNamingPreset(CUSTOM_NAMING_IDX);
+    setFNamingMask((prev) => `${prev}${token}`);
   };
 
   const openEdit = (t: Transfer) => {
@@ -389,7 +395,21 @@ export default function TransfersPage() {
                       {NAMING_PRESETS.map((p, i) => <option key={i} value={i}>{p.label}{p.mask ? ` — ${p.mask}` : ""}</option>)}
                     </select>
                     {fNamingPreset === CUSTOM_NAMING_IDX && (
-                      <input className="input mt-2" value={fNamingMask} onChange={(e) => setFNamingMask(e.target.value)} placeholder="{YYYY}{MM}{DD}_{ORIGINAL}{EXT}" />
+                      <>
+                        <input className="input mt-2" value={fNamingMask} onChange={(e) => setFNamingMask(e.target.value)} placeholder="{YYYY}{MM}{DD}_{ORIGINAL}{EXT}" />
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {FILE_NAMING_TOKENS.map((token) => (
+                            <button
+                              key={token}
+                              type="button"
+                              className="badge badge-muted"
+                              onClick={() => insertNamingToken(token)}
+                            >
+                              {token}
+                            </button>
+                          ))}
+                        </div>
+                      </>
                     )}
                   </div>
 

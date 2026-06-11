@@ -4,7 +4,22 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
+import { FILE_NAMING_TOKENS } from "@/lib/file-naming";
 import type { SanitizedUser } from "@/lib/types";
+const FILE_NAMING_TOKEN_DESCRIPTIONS: Record<string, string> = {
+  "{ORIGINAL}": "Original filename without extension",
+  "{EXT}": "Extension with dot (.pdf)",
+  "{YYYY}": "4-digit year",
+  "{YY}": "2-digit year",
+  "{MM}": "2-digit month",
+  "{DD}": "2-digit day",
+  "{HH}": "2-digit hour (24h)",
+  "{mm}": "2-digit minute",
+  "{ss}": "2-digit second",
+  "{UUID}": "Full UUID",
+  "{UUID8}": "First 8 chars of UUID",
+  "{SEQ}": "Sequence number",
+};
 
 export default function DocumentationPage() {
   const router = useRouter();
@@ -134,23 +149,14 @@ sftp> bye`}</CodeBlock>
             </Section>
 
             {/* File Naming */}
-            <Section title="File Naming">
+            <Section id="file-naming" title="File Naming">
               <p>Each endpoint can be configured with a file naming mask. Available tokens:</p>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-sm">
-                <Token name="{ORIGINAL}" desc="Original filename without extension" />
-                <Token name="{EXT}" desc="Extension with dot (.pdf)" />
-                <Token name="{YYYY}" desc="4-digit year" />
-                <Token name="{YY}" desc="2-digit year" />
-                <Token name="{MM}" desc="2-digit month" />
-                <Token name="{DD}" desc="2-digit day" />
-                <Token name="{HH}" desc="2-digit hour (24h)" />
-                <Token name="{mm}" desc="2-digit minute" />
-                <Token name="{ss}" desc="2-digit second" />
-                <Token name="{UUID}" desc="Full UUID" />
-                <Token name="{UUID8}" desc="First 8 chars of UUID" />
-                <Token name="{SEQ}" desc="Sequence number" />
+                {FILE_NAMING_TOKENS.map((token) => (
+                  <Token key={token} name={token} desc={FILE_NAMING_TOKEN_DESCRIPTIONS[token] || ""} />
+                ))}
               </div>
-              <p className="mt-3 text-sm text-text-muted">Example: <code>{"{YYYY}{MM}{DD}-{HH}{mm}{ss}_{ORIGINAL}{EXT}"}</code> → <code>20240315-103045_invoice.pdf</code></p>
+              <p className="mt-3 text-sm text-text-muted">Click a token to copy it. Example: <code>{"{YYYY}{MM}{DD}-{HH}{mm}{ss}_{ORIGINAL}{EXT}"}</code> → <code>20240315-103045_invoice.pdf</code></p>
             </Section>
 
             {/* API Keys Security */}
@@ -190,9 +196,9 @@ SECURE_COOKIES=true`}</CodeBlock>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ id, title, children }: { id?: string; title: string; children: React.ReactNode }) {
   return (
-    <section className="mb-8">
+    <section id={id} className="mb-8">
       <h2 className="text-lg font-semibold text-text-primary mb-3 pb-2 border-b border-border">{title}</h2>
       <div className="text-sm text-text-secondary leading-relaxed">{children}</div>
     </section>
@@ -256,9 +262,29 @@ function StatusRow({ code, meaning }: { code: string; meaning: string }) {
 }
 
 function Token({ name, desc }: { name: string; desc: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(name);
+      setCopied(true);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = name;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+    }
+    setTimeout(() => setCopied(false), 1500);
+  };
   return (
     <>
-      <code className="text-xs text-accent">{name}</code>
+      <button type="button" className="text-xs text-accent text-left hover:underline" onClick={copy}>
+        {copied ? `${name} copied` : name}
+      </button>
       <span className="text-text-muted">{desc}</span>
     </>
   );

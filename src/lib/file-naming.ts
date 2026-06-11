@@ -1,6 +1,20 @@
 import path from "path";
 import { randomUUID } from "crypto";
 import type { FileNaming } from "./types";
+export const FILE_NAMING_TOKENS = [
+  "{ORIGINAL}",
+  "{EXT}",
+  "{YYYY}",
+  "{YY}",
+  "{MM}",
+  "{DD}",
+  "{HH}",
+  "{mm}",
+  "{ss}",
+  "{UUID}",
+  "{UUID8}",
+  "{SEQ}",
+] as const;
 
 /**
  * Apply a filename mask to generate the stored filename.
