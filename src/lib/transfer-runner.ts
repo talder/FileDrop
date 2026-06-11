@@ -8,6 +8,7 @@ import { getDestinationById, isPathAccessible } from "./destinations";
 import {
   sftpConnect,
   listRemoteFiles,
+  resolveRemoteSource,
   fastGetP,
   fastPutP,
   unlinkP,
@@ -148,8 +149,9 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
 
   try {
     if (transfer.direction === "pull") {
-      const remoteFiles = await listRemoteFiles(sftp, remoteBase, recursive);
-      const selected = selectFiles(remoteFiles, transfer.selection);
+      // remoteBase may be a folder (listed) or a single file (fetched directly).
+      const source = await resolveRemoteSource(sftp, remoteBase, recursive);
+      const selected = selectFiles(source.files, transfer.selection);
       summary.filesTotal = selected.length;
 
       const written = new Set<string>();
@@ -170,7 +172,7 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
         }
         const savedName = resolution.name!;
         const localTarget = path.join(targetDir, savedName);
-        const remoteFile = path.posix.join(remoteBase, file.relPath);
+        const remoteFile = path.posix.join(source.baseDir, file.relPath);
 
         try {
           await fastGetP(sftp, remoteFile, localTarget);

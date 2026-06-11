@@ -17,7 +17,21 @@ export interface SftpFile {
 // POSIX mode bitmasks (ssh2 readdir attrs expose a numeric `mode`).
 const S_IFMT = 0o170000;
 const S_IFDIR = 0o040000;
-const S_IFREG = 0o100000;
+
+/**
+ * Best-effort directory detection for one SFTP listing entry.
+ *
+ * Prefers POSIX mode bits, but many SFTP servers (non-OpenSSH, Windows and
+ * appliance servers) omit the file-type bits — or the whole `permissions`
+ * attribute — in directory listings, leaving `mode` as 0. In that case we fall
+ * back to the `ls -l`-style `longname` prefix (`d...` = directory).
+ */
+function isRemoteDirectory(entry: FileEntry): boolean {
+  const mode = typeof entry.attrs?.mode === "number" ? entry.attrs.mode : 0;
+  const typeBits = mode & S_IFMT;
+  if (typeBits !== 0) return typeBits === S_IFDIR;
+  return /^d/.test(entry.longname || "");
+}
 
 function getAuth(conn: SftpConnectionParams): { password?: string; privateKey?: string } {
   const auth: { password?: string; privateKey?: string } = {};
@@ -126,19 +140,28 @@ export async function listRemoteFiles(sftp: SFTPWrapper, dir: string, recursive 
   async function walk(currentDir: string, relPrefix: string): Promise<void> {
     const list = await readdirP(sftp, currentDir);
     for (const entry of list) {
-      const rel = relPrefix ? `${relPrefix}/${entry.filename}` : entry.filename;
-      const fileType = entry.attrs.mode & S_IFMT;
-      if (fileType === S_IFDIR) {
-        if (recursive) await walk(path.posix.join(currentDir, entry.filename), rel);
-      } else if (fileType === S_IFREG) {
-        out.push({
-          name: entry.filename,
-          relPath: rel,
-          size: entry.attrs.size,
-          modifiedAt: new Date(entry.attrs.mtime * 1000).toISOString(),
-          isDirectory: false,
-        });
+      const name = entry.filename;
+      if (name === "." || name === "..") continue;
+      const rel = relPrefix ? `${relPrefix}/${name}` : name;
+
+      if (isRemoteDirectory(entry)) {
+        // Only descend into real directories; never recurse on "." / "..".
+        if (recursive) await walk(path.posix.join(currentDir, name), rel);
+        continue;
       }
+
+      // Treat every non-directory entry as a downloadable file. We must NOT
+      // require the S_IFREG bit here: servers that omit POSIX type bits would
+      // otherwise have every file silently dropped from the listing.
+      const size = typeof entry.attrs?.size === "number" ? entry.attrs.size : 0;
+      const mtime = typeof entry.attrs?.mtime === "number" ? entry.attrs.mtime : 0;
+      out.push({
+        name,
+        relPath: rel,
+        size,
+        modifiedAt: mtime ? new Date(mtime * 1000).toISOString() : "",
+        isDirectory: false,
+      });
     }
   }
 
@@ -146,11 +169,61 @@ export async function listRemoteFiles(sftp: SFTPWrapper, dir: string, recursive 
   return out;
 }
 
+export interface RemoteSource {
+  /** Directory each file's relPath is relative to (used to build the fetch path). */
+  baseDir: string;
+  files: SftpFile[];
+}
+
+/**
+ * Resolve a remote source path that may be either a directory (which is listed)
+ * or a single file (fetched directly). This lets a transfer's `remotePath`
+ * point straight at one file instead of a folder.
+ */
+export async function resolveRemoteSource(
+  sftp: SFTPWrapper,
+  remotePath: string,
+  recursive = false,
+): Promise<RemoteSource> {
+  const target = remotePath || ".";
+
+  // Prefer treating it as a directory: a successful readdir proves it is one.
+  try {
+    const files = await listRemoteFiles(sftp, target, recursive);
+    return { baseDir: target, files };
+  } catch {
+    // Not listable as a directory — fall through and probe it as a file.
+  }
+
+  const st = await statP(sftp, target);
+  if (st) {
+    const mode = typeof st.mode === "number" ? st.mode : 0;
+    // If we can positively tell it's a directory we simply could not list it.
+    if ((mode & S_IFMT) === S_IFDIR) return { baseDir: target, files: [] };
+    const mtime = typeof st.mtime === "number" ? st.mtime : 0;
+    return {
+      baseDir: path.posix.dirname(target),
+      files: [
+        {
+          name: path.posix.basename(target),
+          relPath: path.posix.basename(target),
+          size: typeof st.size === "number" ? st.size : 0,
+          modifiedAt: mtime ? new Date(mtime * 1000).toISOString() : "",
+          isDirectory: false,
+        },
+      ],
+    };
+  }
+
+  // Surface the original listing error (path missing or inaccessible).
+  return { baseDir: target, files: await listRemoteFiles(sftp, target, recursive) };
+}
+
 /** Convenience: open, list (non-recursive), close. Used by connection tests. */
 export async function sftpListOnce(conn: SftpConnectionParams, remotePath?: string): Promise<SftpFile[]> {
   const { sftp, close } = await sftpConnect(conn);
   try {
-    return await listRemoteFiles(sftp, remotePath || ".", false);
+    return (await resolveRemoteSource(sftp, remotePath || ".", false)).files;
   } finally {
     close();
   }
