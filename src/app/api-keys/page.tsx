@@ -6,6 +6,7 @@ import { Plus, Trash2, Ban, Copy, Check, KeyRound, X, AlertTriangle } from "luci
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
+import ModalOverlay from "@/components/ModalOverlay";
 import type { SanitizedUser, DropEndpoint } from "@/lib/types";
 
 interface ApiKeyRow {
@@ -176,8 +177,7 @@ export default function ApiKeysPage() {
 
           {/* Generate modal */}
           {showGenModal && (
-            <div className="modal-overlay" onClick={() => { if (!generatedKey) setShowGenModal(false); }}>
-              <div className="modal" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+            <ModalOverlay onClose={() => { if (!generatedKey) setShowGenModal(false); }} maxWidth={520}>
                 <div className="modal-header">
                   <h2>{generatedKey ? "API Key Generated" : "Generate API Key"}</h2>
                   <button onClick={() => setShowGenModal(false)} className="btn-ghost p-1 rounded-lg"><X className="w-4 h-4" /></button>
@@ -238,8 +238,7 @@ export default function ApiKeysPage() {
                     </>
                   )}
                 </div>
-              </div>
-            </div>
+            </ModalOverlay>
           )}
 
           <ConfirmModal isOpen={!!revokeTarget} title="Revoke API Key" message={`Revoke the key for "${revokeTarget?.partyName}"? They will immediately lose access.`} confirmLabel="Revoke" onConfirm={handleRevoke} onClose={() => setRevokeTarget(null)} />

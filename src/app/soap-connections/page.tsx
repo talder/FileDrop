@@ -6,6 +6,7 @@ import { Plus, Pencil, Trash2, TestTube, X, Globe } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
+import ModalOverlay from "@/components/ModalOverlay";
 import type { SanitizedUser } from "@/lib/types";
 
 interface SoapRow {
@@ -195,8 +196,7 @@ export default function SoapConnectionsPage() {
           )}
 
           {showModal && (
-            <div className="modal-overlay" onClick={() => setShowModal(false)}>
-              <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <ModalOverlay onClose={() => setShowModal(false)} maxWidth={560}>
                 <div className="modal-header">
                   <h2>{editTarget ? "Edit SOAP Endpoint" : "New SOAP Endpoint"}</h2>
                   <button onClick={() => setShowModal(false)} className="btn-ghost p-1 rounded-lg"><X className="w-4 h-4" /></button>
@@ -258,8 +258,7 @@ export default function SoapConnectionsPage() {
                   <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
                   <button className="btn btn-primary" onClick={handleSubmit}>{editTarget ? "Save Changes" : "Create"}</button>
                 </div>
-              </div>
-            </div>
+            </ModalOverlay>
           )}
 
           <ConfirmModal

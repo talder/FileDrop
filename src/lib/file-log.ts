@@ -2,7 +2,10 @@ import { getDb } from "./config";
 import { forwardToVictoriaLogs } from "./victorialog";
 import type { FileLogEntry } from "./types";
 
-export function logFileUpload(entry: Omit<FileLogEntry, "id">): number {
+export function logFileUpload(
+  entry: Omit<FileLogEntry, "id">,
+  opts?: { forward?: boolean },
+): number {
   const db = getDb();
   const result = db.prepare(`
     INSERT INTO file_log (timestamp, filename, original_filename, file_size, mime_type, source_ip, source_hostname, api_key_id, api_key_party, endpoint_slug, destination_path, destination_name, status, error_message)
@@ -13,22 +16,26 @@ export function logFileUpload(entry: Omit<FileLogEntry, "id">): number {
     entry.endpointSlug, entry.destinationPath, entry.destinationName || "", entry.status, entry.errorMessage || null
   );
 
-  forwardToVictoriaLogs(
-    "file",
-    {
-      message: `${entry.status} ${entry.originalFilename} → ${entry.destinationName || entry.destinationPath}`,
-      filename: entry.filename,
-      originalFilename: entry.originalFilename,
-      fileSize: entry.fileSize,
-      sourceIp: entry.sourceIp,
-      party: entry.apiKeyPartyName,
-      endpointSlug: entry.endpointSlug,
-      destinationName: entry.destinationName || "",
-      status: entry.status,
-      errorMessage: entry.errorMessage || undefined,
-    },
-    entry.status === "failed" ? "error" : "info",
-  );
+  // Callers that emit their own richer VictoriaLogs event (e.g. transfers) can
+  // opt out of this generic "file" event to avoid duplicate log lines.
+  if (opts?.forward !== false) {
+    forwardToVictoriaLogs(
+      "file",
+      {
+        message: `${entry.status} ${entry.originalFilename} → ${entry.destinationName || entry.destinationPath}`,
+        filename: entry.filename,
+        originalFilename: entry.originalFilename,
+        fileSize: entry.fileSize,
+        sourceIp: entry.sourceIp,
+        party: entry.apiKeyPartyName,
+        endpointSlug: entry.endpointSlug,
+        destinationName: entry.destinationName || "",
+        status: entry.status,
+        errorMessage: entry.errorMessage || undefined,
+      },
+      entry.status === "failed" ? "error" : "info",
+    );
+  }
 
   return result.lastInsertRowid as number;
 }

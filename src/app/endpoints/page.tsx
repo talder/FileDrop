@@ -6,6 +6,7 @@ import { Plus, Pencil, Trash2, Copy, Globe, X, Check } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
+import ModalOverlay from "@/components/ModalOverlay";
 import type { SanitizedUser, DropEndpoint, DestinationType, EndpointType, FileNaming } from "@/lib/types";
 
 const FILE_NAMING_PRESETS = [
@@ -203,8 +204,7 @@ export default function EndpointsPage() {
           )}
 
           {showModal && (
-            <div className="modal-overlay" onClick={() => setShowModal(false)}>
-              <div className="modal" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+            <ModalOverlay onClose={() => setShowModal(false)} maxWidth={520}>
                 <div className="modal-header">
                   <h2>{editTarget ? "Edit Endpoint" : "New Endpoint"}</h2>
                   <button onClick={() => setShowModal(false)} className="btn-ghost p-1 rounded-lg"><X className="w-4 h-4" /></button>
@@ -298,8 +298,7 @@ export default function EndpointsPage() {
                   <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
                   <button className="btn btn-primary" onClick={handleSubmit}>{editTarget ? "Save" : "Create"}</button>
                 </div>
-              </div>
-            </div>
+            </ModalOverlay>
           )}
 
           <ConfirmModal isOpen={!!deleteTarget} title="Delete Endpoint" message={`Delete endpoint "${deleteTarget?.slug}"? External parties will no longer be able to upload to this URL.`} confirmLabel="Delete" onConfirm={handleDelete} onClose={() => setDeleteTarget(null)} />

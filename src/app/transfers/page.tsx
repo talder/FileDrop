@@ -6,6 +6,7 @@ import { Plus, Pencil, Trash2, Play, History, X, ArrowRightLeft } from "lucide-r
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
+import ModalOverlay from "@/components/ModalOverlay";
 import type {
   SanitizedUser,
   Transfer,
@@ -288,8 +289,7 @@ export default function TransfersPage() {
           )}
 
           {showModal && (
-            <div className="modal-overlay" onClick={() => setShowModal(false)}>
-              <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <ModalOverlay onClose={() => setShowModal(false)} maxWidth={560}>
                 <div className="modal-header">
                   <h2>{editTarget ? "Edit Transfer" : "New Transfer"}</h2>
                   <button onClick={() => setShowModal(false)} className="btn-ghost p-1 rounded-lg"><X className="w-4 h-4" /></button>
@@ -457,14 +457,12 @@ export default function TransfersPage() {
                   <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
                   <button className="btn btn-primary" onClick={handleSubmit}>{editTarget ? "Save Changes" : "Create"}</button>
                 </div>
-              </div>
-            </div>
+            </ModalOverlay>
           )}
 
           {/* Run history modal */}
           {runsTarget && (
-            <div className="modal-overlay" onClick={() => setRunsTarget(null)}>
-              <div className="modal" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
+            <ModalOverlay onClose={() => setRunsTarget(null)} maxWidth={620}>
                 <div className="modal-header">
                   <h2>Run History — {runsTarget.name}</h2>
                   <button onClick={() => setRunsTarget(null)} className="btn-ghost p-1 rounded-lg"><X className="w-4 h-4" /></button>
@@ -495,8 +493,7 @@ export default function TransfersPage() {
                 <div className="modal-footer">
                   <button className="btn btn-secondary" onClick={() => setRunsTarget(null)}>Close</button>
                 </div>
-              </div>
-            </div>
+            </ModalOverlay>
           )}
 
           <ConfirmModal

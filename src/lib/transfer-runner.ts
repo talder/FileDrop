@@ -17,6 +17,7 @@ import {
 import { selectFiles, applyConflictPolicy } from "./transfer-util";
 import { applyFilenameMask } from "./file-naming";
 import { logFileUpload } from "./file-log";
+import { forwardToVictoriaLogs } from "./victorialog";
 import { startTransferRun, finishTransferRun } from "./transfer-runs";
 import { setTransferLastRun } from "./transfers";
 import { auditLog } from "./audit";
@@ -66,6 +67,43 @@ async function listLocalFiles(dir: string, recursive: boolean): Promise<LocalFil
   }
   await walk(dir, "");
   return out;
+}
+
+/**
+ * Emit a structured per-file transfer event to VictoriaLogs so logs show
+ * exactly which files moved (and which were skipped/failed), including the
+ * direction and the remote/local paths involved.
+ */
+function logTransferFile(transfer: Transfer, p: {
+  action: "transferred" | "skipped" | "failed";
+  originalName: string;
+  savedName?: string;
+  remotePath: string;
+  localPath: string;
+  size: number;
+  error?: string;
+}): void {
+  const flow = transfer.direction === "pull"
+    ? `${p.remotePath} → ${p.localPath}`
+    : `${p.localPath} → ${p.remotePath}`;
+  const named = p.savedName && p.savedName !== p.originalName ? `${p.originalName} as ${p.savedName}` : p.originalName;
+  forwardToVictoriaLogs(
+    "transfer-file",
+    {
+      message: `${p.action} (${transfer.direction}) ${named}: ${flow}`,
+      transferId: transfer.id,
+      transferName: transfer.name,
+      direction: transfer.direction,
+      action: p.action,
+      originalFilename: p.originalName,
+      filename: p.savedName || p.originalName,
+      remotePath: p.remotePath,
+      localPath: p.localPath,
+      fileSize: p.size,
+      errorMessage: p.error,
+    },
+    p.action === "failed" ? "error" : "info",
+  );
 }
 
 /**
@@ -160,6 +198,7 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
         const targetDir = relDir && relDir !== "." ? path.join(localDir, relDir) : localDir;
         try { await mkdir(targetDir, { recursive: true }); } catch { /* exists */ }
 
+        const remoteFile = path.posix.join(source.baseDir, file.relPath);
         const desired = applyFilenameMask(naming, file.name);
         const resolution = applyConflictPolicy(
           desired,
@@ -168,11 +207,18 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
         );
         if (resolution.action === "skip") {
           summary.filesSkipped += 1;
+          logTransferFile(transfer, {
+            action: "skipped",
+            originalName: file.name,
+            savedName: desired,
+            remotePath: remoteFile,
+            localPath: path.join(targetDir, desired),
+            size: file.size,
+          });
           continue;
         }
         const savedName = resolution.name!;
         const localTarget = path.join(targetDir, savedName);
-        const remoteFile = path.posix.join(source.baseDir, file.relPath);
 
         try {
           await fastGetP(sftp, remoteFile, localTarget);
@@ -186,6 +232,14 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
             fileSize: file.size,
             status: "success",
             ...logBase,
+          }, { forward: false });
+          logTransferFile(transfer, {
+            action: "transferred",
+            originalName: file.name,
+            savedName,
+            remotePath: remoteFile,
+            localPath: localTarget,
+            size: file.size,
           });
           if (transfer.deleteSourceAfterTransfer) {
             try { await unlinkP(sftp, remoteFile); } catch { /* best effort */ }
@@ -202,6 +256,15 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
             status: "failed",
             errorMessage: msg,
             ...logBase,
+          }, { forward: false });
+          logTransferFile(transfer, {
+            action: "failed",
+            originalName: file.name,
+            savedName,
+            remotePath: remoteFile,
+            localPath: localTarget,
+            size: file.size,
+            error: msg,
           });
         }
       }
@@ -221,6 +284,7 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
         const remoteDir = relDir && relDir !== "." ? path.posix.join(remoteBase, relDir) : remoteBase;
         if (remoteDir !== remoteBase) await ensureRemoteDir(sftp, remoteDir);
 
+        const localSource = path.join(localDir, file.relPath);
         const desired = applyFilenameMask(naming, file.name);
         const resolution = applyConflictPolicy(
           desired,
@@ -229,11 +293,18 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
         );
         if (resolution.action === "skip") {
           summary.filesSkipped += 1;
+          logTransferFile(transfer, {
+            action: "skipped",
+            originalName: file.name,
+            savedName: desired,
+            remotePath: path.posix.join(remoteDir, desired),
+            localPath: localSource,
+            size: file.size,
+          });
           continue;
         }
         const savedName = resolution.name!;
         const remoteTarget = path.posix.join(remoteDir, savedName);
-        const localSource = path.join(localDir, file.relPath);
 
         try {
           await fastPutP(sftp, localSource, remoteTarget);
@@ -247,6 +318,14 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
             fileSize: file.size,
             status: "success",
             ...logBase,
+          }, { forward: false });
+          logTransferFile(transfer, {
+            action: "transferred",
+            originalName: file.name,
+            savedName,
+            remotePath: remoteTarget,
+            localPath: localSource,
+            size: file.size,
           });
           if (transfer.deleteSourceAfterTransfer) {
             try { await unlink(localSource); } catch { /* best effort */ }
@@ -263,6 +342,15 @@ export async function runTransfer(transfer: Transfer, trigger: TransferTrigger):
             status: "failed",
             errorMessage: msg,
             ...logBase,
+          }, { forward: false });
+          logTransferFile(transfer, {
+            action: "failed",
+            originalName: file.name,
+            savedName,
+            remotePath: remoteTarget,
+            localPath: localSource,
+            size: file.size,
+            error: msg,
           });
         }
       }

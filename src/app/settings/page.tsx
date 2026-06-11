@@ -6,6 +6,7 @@ import { Save, Plus, Trash2, Unlock, X } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
+import ModalOverlay from "@/components/ModalOverlay";
 import type { SanitizedUser, AppSettings, DEFAULT_SETTINGS } from "@/lib/types";
 
 export default function SettingsPage() {
@@ -205,8 +206,7 @@ export default function SettingsPage() {
               </table>
 
               {showAddUser && (
-                <div className="modal-overlay" onClick={() => setShowAddUser(false)}>
-                  <div className="modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+                <ModalOverlay onClose={() => setShowAddUser(false)} maxWidth={400}>
                     <div className="modal-header">
                       <h2>Add User</h2>
                       <button onClick={() => setShowAddUser(false)} className="btn-ghost p-1 rounded-lg"><X className="w-4 h-4" /></button>
@@ -221,8 +221,7 @@ export default function SettingsPage() {
                       <button className="btn btn-secondary" onClick={() => setShowAddUser(false)}>Cancel</button>
                       <button className="btn btn-primary" onClick={handleAddUser}>Create User</button>
                     </div>
-                  </div>
-                </div>
+                </ModalOverlay>
               )}
 
               <ConfirmModal isOpen={!!deleteUserTarget} title="Delete User" message={`Delete user "${deleteUserTarget?.username}"?`} confirmLabel="Delete" onConfirm={handleDeleteUser} onClose={() => setDeleteUserTarget(null)} />

@@ -1,6 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
+import ModalOverlay from "./ModalOverlay";
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -19,8 +20,7 @@ export default function ConfirmModal({
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+    <ModalOverlay onClose={onClose} maxWidth={400}>
         <div className="modal-header">
           <h2>{title}</h2>
           <button onClick={onClose} className="btn-ghost p-1 rounded-lg"><X className="w-4 h-4" /></button>
@@ -34,7 +34,6 @@ export default function ConfirmModal({
             {confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalOverlay>
   );
 }
