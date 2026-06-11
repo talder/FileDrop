@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, RefreshCw, Power, PowerOff, TestTube, X, FolderOpen } from "lucide-react";
+import { Plus, Pencil, Trash2, Power, PowerOff, TestTube, X, FolderOpen } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
 import ModalOverlay from "@/components/ModalOverlay";
+import DataFolderBrowserModal from "@/components/DataFolderBrowserModal";
 import type { SanitizedUser, DestinationType } from "@/lib/types";
 
 interface DestinationRow {
@@ -32,6 +33,7 @@ export default function DestinationsPage() {
   const [editTarget, setEditTarget] = useState<DestinationRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DestinationRow | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [showFolderBrowser, setShowFolderBrowser] = useState(false);
 
   // Form state
   const [fName, setFName] = useState("");
@@ -61,6 +63,7 @@ export default function DestinationsPage() {
   }, []);
 
   useEffect(() => { if (user) fetchDestinations(); }, [user, fetchDestinations]);
+  useEffect(() => { if (!showModal) setShowFolderBrowser(false); }, [showModal]);
 
   const openCreate = () => {
     setEditTarget(null);
@@ -215,7 +218,11 @@ export default function DestinationsPage() {
                   </div>
                   <div>
                     <label className="input-label">{fType === "local" ? "Directory Path" : "Local Mount Point"}</label>
-                    <input className="input" value={fLocalPath} onChange={(e) => setFLocalPath(e.target.value)} placeholder="/mnt/filedrop/invoices" />
+                    <div className="flex items-center gap-2">
+                      <input className="input flex-1" value={fLocalPath} onChange={(e) => setFLocalPath(e.target.value)} placeholder="/mnt/filedrop/invoices" />
+                      <button className="btn btn-secondary whitespace-nowrap" onClick={() => setShowFolderBrowser(true)}>Browse /DATA</button>
+                    </div>
+                    <p className="text-xs text-text-muted mt-1">Use the browser to pick folders under <span className="font-mono">/DATA</span>.</p>
                   </div>
                   {fType !== "local" && (
                     <>
@@ -261,6 +268,16 @@ export default function DestinationsPage() {
                 </div>
             </ModalOverlay>
           )}
+
+          <DataFolderBrowserModal
+            isOpen={showFolderBrowser}
+            initialPath={fLocalPath}
+            onClose={() => setShowFolderBrowser(false)}
+            onSelect={(selectedPath) => {
+              setFLocalPath(selectedPath);
+              setShowFolderBrowser(false);
+            }}
+          />
 
           <ConfirmModal
             isOpen={!!deleteTarget}
