@@ -467,11 +467,14 @@ export default function IntegrationsPage() {
                             <option value="days">Days</option>
                           </select>
                         </div>
-                        {fSchedUnit === "days" && (
+                        {fSchedUnit === "days" ? (
                           <div className="col-span-2">
-                            <label className="input-label">At time (HH:MM, optional)</label>
-                            <input className="input" value={fSchedAtTime} onChange={(e) => setFSchedAtTime(e.target.value)} placeholder="03:00" />
+                            <label className="input-label">At time of day (optional)</label>
+                            <input className="input" type="time" value={fSchedAtTime} onChange={(e) => setFSchedAtTime(e.target.value)} />
+                            <p className="text-xs text-text-muted mt-1">Set e.g. 13:30 to run at that time each day. Leave empty to use a fixed interval.</p>
                           </div>
+                        ) : (
+                          <p className="text-xs text-text-muted col-span-2">Tip: choose <strong>Days</strong> to run at a specific time of day (e.g. 13:30).</p>
                         )}
                       </div>
                     )}
