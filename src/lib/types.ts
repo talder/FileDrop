@@ -493,3 +493,66 @@ export const DEFAULT_SETTINGS: AppSettings = {
   victoriaLogsPort: 514,
   victoriaLogsProtocol: "syslog-udp",
 };
+
+// === Tags & Flow Map ===
+
+/** All node kinds that can appear in the flow map. */
+export type NodeKind =
+  | "party"
+  | "endpoint"
+  | "destination"
+  | "transfer"
+  | "integration"
+  | "sftp"
+  | "soap"
+  | "ftp";
+
+/** Entity kinds that can be assigned to a tag (parties are not taggable). */
+export type TaggableKind = Exclude<NodeKind, "party">;
+
+/** A single tagged item reference. */
+export interface TagMember {
+  type: TaggableKind;
+  id: string;
+}
+
+/** A user-defined label grouping configured items across modules. */
+export interface Tag {
+  id: string;
+  name: string;
+  /** Hex color, e.g. "#3b82f6". */
+  color: string;
+  description?: string;
+  members: TagMember[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
+/** A node in the flow-map graph. */
+export interface FlowNode {
+  /** Stable id, formatted as `${kind}:${entityId}`. */
+  id: string;
+  kind: NodeKind;
+  entityId: string;
+  label: string;
+  /** Secondary descriptor line, e.g. host, path, or slug. */
+  sub?: string;
+  /** Ids of tags this node belongs to (always empty for parties). */
+  tagIds: string[];
+}
+
+/** A directed edge representing a file-movement relationship. */
+export interface FlowEdge {
+  id: string;
+  source: string;
+  target: string;
+  /** Short relationship label, e.g. "writes", "pull", "push", "SOAP". */
+  label?: string;
+}
+
+/** Full graph payload returned by the flow-graph API. */
+export interface FlowGraph {
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+  tags: Tag[];
+}

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Play, History, X, ArrowRightLeft } from "lucide-react";
+import { Plus, Pencil, Trash2, Play, History, X, ArrowRightLeft, Copy } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -144,8 +144,7 @@ export default function TransfersPage() {
     setFNamingMask((prev) => `${prev}${token}`);
   };
 
-  const openEdit = (t: Transfer) => {
-    setEditTarget(t);
+  const fillFormFromTransfer = (t: Transfer) => {
     setFName(t.name); setFDesc(t.description || ""); setFEnabled(t.enabled);
     setFConnId(t.connectionId); setFDirection(t.direction); setFRemotePath(t.remotePath || "");
     setFDestId(t.destinationId); setFSubdir(t.subdirectory || "");
@@ -173,6 +172,22 @@ export default function TransfersPage() {
     setFRetryMaxAttempts(String(t.retryPolicy?.maxAttempts || 3));
     setFRetryBackoffSeconds(String(t.retryPolicy?.backoffSeconds || 5));
     setFRetryDeadLetter(t.retryPolicy?.deadLetterSubdirectory || "_dead-letter");
+  };
+
+  const openEdit = (t: Transfer) => {
+    setEditTarget(t);
+    fillFormFromTransfer(t);
+    setFormError("");
+    setShowModal(true);
+  };
+
+  // Duplicate: prefill the create modal from an existing transfer (no id), so
+  // saving POSTs a brand-new transfer. The name is pre-suffixed to avoid the
+  // server's duplicate-name rejection; the user can adjust before saving.
+  const openDuplicate = (t: Transfer) => {
+    setEditTarget(null);
+    fillFormFromTransfer(t);
+    setFName(`Copy of ${t.name}`);
     setFormError("");
     setShowModal(true);
   };
@@ -327,6 +342,7 @@ export default function TransfersPage() {
                         <button className="btn btn-ghost btn-sm" onClick={() => handleRun(t)} disabled={runningId === t.id} title="Run now"><Play className="w-3.5 h-3.5" /></button>
                         <button className="btn btn-ghost btn-sm" onClick={() => openRuns(t)} title="Run history"><History className="w-3.5 h-3.5" /></button>
                         <button className="btn btn-ghost btn-sm" onClick={() => openEdit(t)} title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => openDuplicate(t)} title="Duplicate"><Copy className="w-3.5 h-3.5" /></button>
                         <button className="btn btn-ghost btn-sm text-red-500" onClick={() => setDeleteTarget(t)} title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
                     </td>

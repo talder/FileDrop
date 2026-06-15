@@ -17,6 +17,8 @@ FileDrop is a self-hosted file exchange and automation service built with Next.j
 - **Destinations** backed by Local paths, NFS, or SMB/CIFS (including mount/unmount and accessibility testing).
 - **Local folder browser** for selecting destination paths under `/DATA`, including creating, renaming, and deleting folders.
 - **Remote SFTP browser** for exploring a server's folder tree and picking a transfer's remote path.
+- **Flow Map** for visualizing the full source-to-destination topology as an interactive diagram, with tag filtering and SVG/PNG export.
+- **Tags** as a standalone module to group related items across modules and drive flow-map filtering.
 - **API key lifecycle** (generate, scoped access, revoke/delete, optional expiry).
 - **User/session lifecycle** (setup, login/logout, admin-managed users, lockout/unlock, password reset).
 - **Observability**:
@@ -52,6 +54,8 @@ npm start
 | Path | Purpose |
 |---|---|
 | `/` | Dashboard: daily/total file stats, endpoint/key counts, recent file activity |
+| `/flow-map` | Visual topology map of all connectors and file movements; filter by tag; export SVG/PNG |
+| `/tags` | Manage tags that group items across modules (used by the flow map) |
 | `/endpoints` | Manage drop endpoints (slug, type, destination, limits, retrieval, notifications, naming) |
 | `/destinations` | Manage local/NFS/SMB destinations, test, mount/unmount, and browse/manage folders under `/DATA` |
 | `/sftp-servers` | Manage reusable outbound SFTP server connections; browse a server's folders |
@@ -166,6 +170,13 @@ Behavior:
 - Resolves the starting path to an absolute path; defaults to the connection's login directory.
 - Reuses the saved connection's stored credentials; no password re-entry.
 
+## Flow Map & Tags
+The **Flow Map** (`/flow-map`) renders the configured topology as an interactive diagram: API-key parties, drop endpoints, destinations, transfers, integrations, and remote SFTP/SOAP/FTP targets are nodes, and file-movement relationships are directed edges (e.g. `writes`, `pull`, `push`, `SOAP`). The view is pan/zoom/drag enabled and never exposes secrets.
+
+**Tags** (`/tags`) are a standalone module for grouping related items across modules. Each tag has a name, color, optional description, and members chosen from endpoints, destinations, transfers, integrations, and SFTP/SOAP/FTP connections. Selecting a tag in the flow map highlights its members and their immediate neighbors while de-emphasizing the rest, so you can isolate a single pipeline. Tag membership referencing a deleted item is pruned automatically.
+
+Both SVG and PNG export of the current view are available from the flow-map toolbar.
+
 ## API reference
 ### Public (no auth)
 | Method | Path | Description |
@@ -215,6 +226,9 @@ Behavior:
 | `GET/PUT/DELETE` | `/api/integrations/{id}` | Read/update/delete integration |
 | `POST` | `/api/integrations/{id}/run` | Run integration now |
 | `GET` | `/api/integrations/{id}/runs` | Integration run history (`limit` query) |
+| `GET` | `/api/flow-graph` | Topology graph (nodes + edges + tags) for the flow map; no secrets |
+| `GET/POST` | `/api/tags` | List/create tags |
+| `GET/PUT/DELETE` | `/api/tags/{id}` | Read/update/delete a tag |
 | `GET/POST` | `/api/api-keys` | List/generate API keys |
 | `PATCH/DELETE` | `/api/api-keys/{id}` | Revoke/update endpoints or delete key |
 | `GET` | `/api/logs` | File activity logs and statistics (`stats=true`) |

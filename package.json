@@ -16,9 +16,11 @@
   "dependencies": {
     "@types/nodemailer": "^8.0.0",
     "@types/ssh2": "^1.15.5",
+    "@xyflow/react": "^12.11.0",
     "basic-ftp": "^6.0.1",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.6.2",
+    "html-to-image": "^1.11.13",
     "lucide-react": "^0.577.0",
     "next": "^16.0.0",
     "nodemailer": "^8.0.5",
