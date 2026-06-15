@@ -7,6 +7,7 @@ import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
 import ModalOverlay from "@/components/ModalOverlay";
+import SftpFolderBrowserModal from "@/components/SftpFolderBrowserModal";
 import { FILE_NAMING_TOKENS } from "@/lib/file-naming";
 import type {
   SanitizedUser,
@@ -62,6 +63,7 @@ export default function TransfersPage() {
   const [runsTarget, setRunsTarget] = useState<Transfer | null>(null);
   const [runs, setRuns] = useState<TransferRun[]>([]);
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [showRemoteBrowser, setShowRemoteBrowser] = useState(false);
 
   // Form state
   const [fName, setFName] = useState("");
@@ -119,6 +121,7 @@ export default function TransfersPage() {
   }, []);
 
   useEffect(() => { if (user) fetchData(); }, [user, fetchData]);
+  useEffect(() => { if (!showModal) setShowRemoteBrowser(false); }, [showModal]);
 
   const openCreate = () => {
     setEditTarget(null);
@@ -365,7 +368,18 @@ export default function TransfersPage() {
                   </div>
                   <div>
                     <label className="input-label">Remote Path ({fDirection === "pull" ? "source" : "target"} on server)</label>
-                    <input className="input" value={fRemotePath} onChange={(e) => setFRemotePath(e.target.value)} placeholder="/outbound" />
+                    <div className="flex items-center gap-2">
+                      <input className="input flex-1" value={fRemotePath} onChange={(e) => setFRemotePath(e.target.value)} placeholder="/outbound" />
+                      <button
+                        type="button"
+                        className="btn btn-secondary whitespace-nowrap"
+                        onClick={() => setShowRemoteBrowser(true)}
+                        disabled={!fConnId}
+                        title={fConnId ? "Browse the SFTP server" : "Select an SFTP server first"}
+                      >
+                        Browse
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -657,6 +671,15 @@ export default function TransfersPage() {
                 </div>
             </ModalOverlay>
           )}
+
+          <SftpFolderBrowserModal
+            isOpen={showRemoteBrowser}
+            connectionId={fConnId}
+            serverName={servers.find((s) => s.id === fConnId)?.name}
+            initialPath={fRemotePath}
+            onClose={() => setShowRemoteBrowser(false)}
+            onSelect={(p) => { setFRemotePath(p); setShowRemoteBrowser(false); }}
+          />
 
           <ConfirmModal
             isOpen={!!deleteTarget}

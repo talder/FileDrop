@@ -16,6 +16,7 @@ FileDrop is a self-hosted file exchange and automation service built with Next.j
 - **Integrations** that read source files, POST to SOAP, optionally save responses locally, optionally deliver to FTP/FTPS, optionally archive or delete source files after success, and optionally post raw bytes to preserve source encoding.
 - **Destinations** backed by Local paths, NFS, or SMB/CIFS (including mount/unmount and accessibility testing).
 - **Local folder browser** for selecting destination paths under `/DATA`.
+- **Remote SFTP browser** for exploring a server's folder tree and picking a transfer's remote path.
 - **API key lifecycle** (generate, scoped access, revoke/delete, optional expiry).
 - **User/session lifecycle** (setup, login/logout, admin-managed users, lockout/unlock, password reset).
 - **Observability**:
@@ -53,8 +54,8 @@ npm start
 | `/` | Dashboard: daily/total file stats, endpoint/key counts, recent file activity |
 | `/endpoints` | Manage drop endpoints (slug, type, destination, limits, retrieval, notifications, naming) |
 | `/destinations` | Manage local/NFS/SMB destinations, test, mount/unmount, and browse folders under `/DATA` |
-| `/sftp-servers` | Manage reusable outbound SFTP server connections |
-| `/transfers` | Manage SFTP transfer jobs (pull/push), schedules, run now, run history |
+| `/sftp-servers` | Manage reusable outbound SFTP server connections; browse a server's folders |
+| `/transfers` | Manage SFTP transfer jobs (pull/push), schedules, run now, run history; browse the remote path |
 | `/soap-connections` | Manage reusable SOAP endpoint definitions and connection tests |
 | `/soap-endpoints` | Alias route that redirects to `/soap-connections` |
 | `/ftp-connections` | Manage reusable FTP/FTPS server definitions and connection tests |
@@ -152,6 +153,18 @@ Behavior:
 - Supports child navigation, parent navigation, and root jump.
 - Rejects paths outside `/DATA`.
 
+## Remote SFTP browser
+Browse a saved SFTP server's directory tree to discover and copy remote paths.
+
+Where to find it:
+- **SFTP Servers page**: `Browse` action on a server row (copies the chosen path to the clipboard).
+- **Transfer create/edit modal**: `Browse` next to **Remote Path** (fills in the selected folder).
+
+Behavior:
+- Lists one directory level at a time (folders and files), with child/parent navigation and a jump to the login directory.
+- Resolves the starting path to an absolute path; defaults to the connection's login directory.
+- Reuses the saved connection's stored credentials; no password re-entry.
+
 ## API reference
 ### Public (no auth)
 | Method | Path | Description |
@@ -183,6 +196,7 @@ Behavior:
 | `GET/POST` | `/api/sftp-connections` | List/create SFTP server connections |
 | `GET/PUT/DELETE` | `/api/sftp-connections/{id}` | Read/update/delete SFTP connection |
 | `POST` | `/api/sftp-connections/{id}/test` | Test SFTP connection (`id=new` supports unsaved values) |
+| `POST` | `/api/sftp-connections/{id}/browse` | List one remote directory level (`id=new` supports unsaved values) |
 | `GET/POST` | `/api/transfers` | List/create transfers |
 | `GET/PUT/DELETE` | `/api/transfers/{id}` | Read/update/delete transfer |
 | `POST` | `/api/transfers/{id}/run` | Run transfer now |

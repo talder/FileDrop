@@ -84,6 +84,13 @@ export function statP(sftp: SFTPWrapper, remotePath: string): Promise<Stats | nu
   });
 }
 
+/** Resolve a (possibly relative) remote path to a canonical absolute path. */
+export function realpathP(sftp: SFTPWrapper, remotePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    sftp.realpath(remotePath, (err, absPath) => (err ? reject(err) : resolve(absPath)));
+  });
+}
+
 export function fastGetP(sftp: SFTPWrapper, remoteFile: string, localFile: string): Promise<void> {
   return new Promise((resolve, reject) => {
     sftp.fastGet(remoteFile, localFile, (err) => (err ? reject(err) : resolve()));
@@ -229,6 +236,76 @@ export async function sftpListOnce(conn: SftpConnectionParams, remotePath?: stri
   const { sftp, close } = await sftpConnect(conn);
   try {
     return (await resolveRemoteSource(sftp, remotePath || ".", false)).files;
+  } finally {
+    close();
+  }
+}
+
+export interface SftpDirEntry {
+  name: string;
+  isDirectory: boolean;
+  size: number;
+  modifiedAt: string;
+}
+
+/**
+ * List a single remote directory level, returning BOTH files and
+ * subdirectories. Unlike listRemoteFiles (which intentionally omits
+ * directories for the transfer runner), this powers the interactive browser.
+ */
+export async function listRemoteEntries(sftp: SFTPWrapper, dir: string): Promise<SftpDirEntry[]> {
+  const list = await readdirP(sftp, dir || ".");
+  const out: SftpDirEntry[] = [];
+  for (const entry of list) {
+    const name = entry.filename;
+    if (name === "." || name === "..") continue;
+    const size = typeof entry.attrs?.size === "number" ? entry.attrs.size : 0;
+    const mtime = typeof entry.attrs?.mtime === "number" ? entry.attrs.mtime : 0;
+    out.push({
+      name,
+      isDirectory: isRemoteDirectory(entry),
+      size,
+      modifiedAt: mtime ? new Date(mtime * 1000).toISOString() : "",
+    });
+  }
+  return out;
+}
+
+export interface SftpBrowseEntry {
+  name: string;
+  path: string;
+}
+
+export interface SftpBrowseResult {
+  currentPath: string;
+  parentPath: string | null;
+  directories: SftpBrowseEntry[];
+  files: SftpBrowseEntry[];
+}
+
+/**
+ * Open a connection, resolve `remotePath` (defaulting to the login directory)
+ * to a canonical absolute path, list one directory level, then close. The
+ * payload is shaped for the folder-browser UI. The caller handles errors.
+ */
+export async function sftpBrowse(conn: SftpConnectionParams, remotePath?: string): Promise<SftpBrowseResult> {
+  const { sftp, close } = await sftpConnect(conn);
+  try {
+    const requested = remotePath && remotePath.trim() ? remotePath.trim() : ".";
+    const currentPath = await realpathP(sftp, requested);
+    const entries = await listRemoteEntries(sftp, currentPath);
+    const byName = (a: SftpBrowseEntry, b: SftpBrowseEntry) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    const directories = entries
+      .filter((e) => e.isDirectory)
+      .map((e) => ({ name: e.name, path: path.posix.join(currentPath, e.name) }))
+      .sort(byName);
+    const files = entries
+      .filter((e) => !e.isDirectory)
+      .map((e) => ({ name: e.name, path: path.posix.join(currentPath, e.name) }))
+      .sort(byName);
+    const parentPath = currentPath === "/" || currentPath === "" ? null : path.posix.dirname(currentPath);
+    return { currentPath, parentPath, directories, files };
   } finally {
     close();
   }

@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, TestTube, X, Server } from "lucide-react";
+import { Plus, Pencil, Trash2, TestTube, X, Server, FolderOpen } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
 import ModalOverlay from "@/components/ModalOverlay";
+import SftpFolderBrowserModal from "@/components/SftpFolderBrowserModal";
 import type { SanitizedUser } from "@/lib/types";
 
 interface ServerRow {
@@ -28,6 +29,7 @@ export default function SftpServersPage() {
   const [showModal, setShowModal] = useState(false);
   const [editTarget, setEditTarget] = useState<ServerRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ServerRow | null>(null);
+  const [browseTarget, setBrowseTarget] = useState<ServerRow | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
 
   // Form state
@@ -165,6 +167,7 @@ export default function SftpServersPage() {
                     <td>
                       <div className="flex items-center gap-1">
                         <button className="btn btn-ghost btn-sm" onClick={() => handleTestRow(s)} title="Test"><TestTube className="w-3.5 h-3.5" /></button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => setBrowseTarget(s)} title="Browse"><FolderOpen className="w-3.5 h-3.5" /></button>
                         <button className="btn btn-ghost btn-sm" onClick={() => openEdit(s)} title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
                         <button className="btn btn-ghost btn-sm text-red-500" onClick={() => setDeleteTarget(s)} title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
@@ -224,6 +227,18 @@ export default function SftpServersPage() {
                 </div>
             </ModalOverlay>
           )}
+
+          <SftpFolderBrowserModal
+            isOpen={!!browseTarget}
+            connectionId={browseTarget?.id || ""}
+            serverName={browseTarget?.name}
+            onClose={() => setBrowseTarget(null)}
+            onSelect={(p) => {
+              navigator.clipboard?.writeText(p).catch(() => {});
+              setBanner(`Copied path: ${p}`);
+              setBrowseTarget(null);
+            }}
+          />
 
           <ConfirmModal
             isOpen={!!deleteTarget}
