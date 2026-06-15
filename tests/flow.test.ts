@@ -11,6 +11,8 @@ import {
   normalizeTag,
   normalizeTagMembers,
   computeLayout,
+  buildDisplayEdges,
+  displayEdgeLabel,
   TAG_COLORS,
   type FlowGraphInput,
 } from "../src/lib/flow.ts";
@@ -18,6 +20,7 @@ import type {
   ApiKey,
   Destination,
   DropEndpoint,
+  FlowEdge,
   FlowGraph,
   FtpConnection,
   Integration,
@@ -299,5 +302,83 @@ describe("computeLayout", () => {
     assert.ok(e1.x > party.x); // endpoints sit in a later column
     assert.equal(e1.x, e2.x); // same kind shares a column
     assert.ok(e2.y > e1.y); // and stacks vertically
+  });
+
+  it("orders tiers connections < jobs < storage, grouping kinds per tier", () => {
+    const input = emptyInput();
+    input.apiKeys = [apiKey({ id: "k1", allowedEndpoints: ["a"] })];
+    input.endpoints = [endpoint({ id: "e1", slug: "a", destinationId: "d1" })];
+    input.destinations = [destination({ id: "d1" })];
+    input.sftpConnections = [sftp({ id: "c1" })];
+    input.transfers = [transfer({ id: "t1", connectionId: "c1", destinationId: "d1", direction: "pull" })];
+    input.soapConnections = [soap({ id: "s1" })];
+    input.integrations = [integration({ id: "i1", sourceDestinationId: "d1", soapConnectionId: "s1" })];
+
+    const pos = computeLayout(buildFlowGraph(input, []).nodes);
+    const x = (id: string) => pos.get(id)!.x;
+    // Connections tier (left): parties leftmost; endpoints + remote servers share a column.
+    assert.ok(x("party:k1") < x("endpoint:e1"));
+    assert.equal(x("endpoint:e1"), x("sftp:c1"));
+    assert.equal(x("sftp:c1"), x("soap:s1"));
+    // Jobs tier (middle): transfers + integrations share a column, right of connections.
+    assert.ok(x("transfer:t1") > x("endpoint:e1"));
+    assert.equal(x("transfer:t1"), x("integration:i1"));
+    // Storage tier (right): destinations are rightmost.
+    assert.ok(x("destination:d1") > x("transfer:t1"));
+  });
+});
+
+// ── buildDisplayEdges / displayEdgeLabel ──────────────────────────────────────
+
+describe("displayEdgeLabel", () => {
+  it("humanizes known labels and falls back to the raw value", () => {
+    assert.equal(displayEdgeLabel("key"), "grants key");
+    assert.equal(displayEdgeLabel("writes"), "writes to");
+    assert.equal(displayEdgeLabel("SOAP"), "posts to SOAP");
+    assert.equal(displayEdgeLabel("pull"), "pull"); // already human
+    assert.equal(displayEdgeLabel("mystery"), "mystery"); // unknown passthrough
+    assert.equal(displayEdgeLabel(undefined), "");
+  });
+});
+
+describe("buildDisplayEdges", () => {
+  it("keeps a one-way edge oriented along its real direction with a humanized label", () => {
+    const edges: FlowEdge[] = [
+      { id: "x", source: "endpoint:e1", target: "destination:d1", label: "writes" },
+    ];
+    const out = buildDisplayEdges(edges);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].source, "endpoint:e1");
+    assert.equal(out[0].target, "destination:d1");
+    assert.equal(out[0].label, "writes to");
+    assert.equal(out[0].bidirectional, false);
+  });
+
+  it("merges a reverse-duplicate pair into one bidirectional edge", () => {
+    // Integration whose source and response destination are the same node.
+    const edges: FlowEdge[] = [
+      { id: "a", source: "destination:d1", target: "integration:i1", label: "source" },
+      { id: "b", source: "integration:i1", target: "destination:d1", label: "response" },
+    ];
+    const out = buildDisplayEdges(edges);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].bidirectional, true);
+    assert.equal(out[0].source, "destination:d1");
+    assert.equal(out[0].target, "integration:i1");
+    assert.equal(out[0].label, "reads / response");
+  });
+
+  it("leaves distinct node pairs as separate edges, in input order", () => {
+    const edges: FlowEdge[] = [
+      { id: "1", source: "sftp:c1", target: "transfer:t1", label: "pull" },
+      { id: "2", source: "transfer:t1", target: "destination:d1", label: "pull" },
+    ];
+    const out = buildDisplayEdges(edges);
+    assert.equal(out.length, 2);
+    assert.equal(out[0].source, "sftp:c1");
+    assert.equal(out[0].target, "transfer:t1");
+    assert.equal(out[1].source, "transfer:t1");
+    assert.equal(out[1].target, "destination:d1");
+    assert.ok(out.every((e) => e.bidirectional === false));
   });
 });

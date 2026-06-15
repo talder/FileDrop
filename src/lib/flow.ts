@@ -242,23 +242,28 @@ export function buildFlowGraph(input: FlowGraphInput, tags: Tag[]): FlowGraph {
 // ── Deterministic layered layout ──────────────────────────────────────────────
 
 const COLUMN_BY_KIND: Record<NodeKind, number> = {
+  // Connections (left): parties grant access to endpoints; endpoints and the
+  // remote SFTP/SOAP/FTP servers are the systems data flows in from / out to.
   party: 0,
   endpoint: 1,
+  sftp: 1,
+  soap: 1,
+  ftp: 1,
+  // Jobs (middle): the transfer/integration that actually moves the data.
   transfer: 2,
   integration: 2,
+  // Storage (right): destinations are local helpers that store or supply data.
   destination: 3,
-  sftp: 4,
-  soap: 4,
-  ftp: 4,
 };
 
-const COLUMN_WIDTH = 300;
+const COLUMN_WIDTH = 340;
 const ROW_HEIGHT = 104;
 
 /**
- * Position nodes in left-to-right columns by kind (parties → endpoints →
- * transfers/integrations → destinations → remote targets), stacking each
- * column vertically. Deterministic so re-renders are stable.
+ * Position nodes in left-to-right tiers: connections (parties, endpoints,
+ * remote SFTP/SOAP/FTP servers) → jobs (transfers, integrations) → storage
+ * (destinations), stacking each column vertically. Deterministic so the
+ * initial render is stable; users can then drag nodes freely.
  */
 export function computeLayout(nodes: FlowNode[]): Map<string, { x: number; y: number }> {
   const rowByColumn = new Map<number, number>();
@@ -270,4 +275,88 @@ export function computeLayout(nodes: FlowNode[]): Map<string, { x: number; y: nu
     positions.set(node.id, { x: col * COLUMN_WIDTH, y: row * ROW_HEIGHT });
   }
   return positions;
+}
+
+// ── Edge presentation ─────────────────────────────────────────────────────────
+
+/** Human-friendly display text for each raw edge relationship label. */
+const EDGE_LABELS: Record<string, string> = {
+  key: "grants key",
+  writes: "writes to",
+  pull: "pull",
+  push: "push",
+  source: "reads",
+  SOAP: "posts to SOAP",
+  response: "response",
+  FTP: "uploads to FTP",
+};
+
+/** Humanize a raw edge label, falling back to the raw value when unmapped. */
+export function displayEdgeLabel(label?: string): string {
+  if (!label) return "";
+  return EDGE_LABELS[label] ?? label;
+}
+
+/** A presentation edge: at most one per node pair, flagged when two-way. */
+export interface DisplayEdge {
+  id: string;
+  source: string;
+  target: string;
+  /** Humanized label(s); two-way edges join both relationships with " / ". */
+  label: string;
+  bidirectional: boolean;
+}
+
+/**
+ * Collapse directed graph edges into presentation edges: at most one edge per
+ * unordered node pair. A pair connected in both directions (e.g. an integration
+ * whose source and response destination are the same) becomes a single
+ * bidirectional edge whose label joins both relationships. One-way edges keep
+ * their real orientation. Deterministic in input order.
+ */
+export function buildDisplayEdges(edges: FlowEdge[]): DisplayEdge[] {
+  interface PairAcc {
+    a: string; // lexicographically smaller node id
+    b: string;
+    forward: string[]; // labels for a → b
+    backward: string[]; // labels for b → a
+  }
+  const byPair = new Map<string, PairAcc>();
+  const order: string[] = [];
+  for (const e of edges) {
+    const forward = e.source <= e.target;
+    const a = forward ? e.source : e.target;
+    const b = forward ? e.target : e.source;
+    const key = `${a}__${b}`;
+    let acc = byPair.get(key);
+    if (!acc) {
+      acc = { a, b, forward: [], backward: [] };
+      byPair.set(key, acc);
+      order.push(key);
+    }
+    const label = displayEdgeLabel(e.label);
+    (forward ? acc.forward : acc.backward).push(label);
+  }
+
+  const out: DisplayEdge[] = [];
+  for (const key of order) {
+    const acc = byPair.get(key)!;
+    const hasForward = acc.forward.length > 0;
+    const hasBackward = acc.backward.length > 0;
+    const bidirectional = hasForward && hasBackward;
+    // Orient a one-way edge along its real direction.
+    const source = !hasForward && hasBackward ? acc.b : acc.a;
+    const target = !hasForward && hasBackward ? acc.a : acc.b;
+    const labels = bidirectional
+      ? [...new Set([...acc.forward, ...acc.backward])]
+      : [...new Set(hasForward ? acc.forward : acc.backward)];
+    out.push({
+      id: `${source}__${target}__display`,
+      source,
+      target,
+      label: labels.filter(Boolean).join(" / "),
+      bidirectional,
+    });
+  }
+  return out;
 }

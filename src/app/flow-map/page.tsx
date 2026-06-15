@@ -2,23 +2,79 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { RefreshCw, Workflow as WorkflowIcon } from "lucide-react";
+import { RefreshCw, Workflow as WorkflowIcon, RotateCcw } from "lucide-react";
 import {
   ReactFlowProvider,
+  useNodesState,
   useReactFlow,
   getNodesBounds,
   getViewportForBounds,
+  MarkerType,
   type Node,
   type Edge,
+  type OnNodeDrag,
 } from "@xyflow/react";
-import { toSvg, toPng } from "html-to-image";
+import { toPng } from "html-to-image";
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
-import FlowMapCanvas from "@/components/FlowMapCanvas";
-import { computeLayout } from "@/lib/flow";
+import FlowMapCanvas, { NODE_WIDTH, estimateNodeHeight } from "@/components/FlowMapCanvas";
+import { computeLayout, buildDisplayEdges } from "@/lib/flow";
 import type { SanitizedUser, FlowGraph, Tag } from "@/lib/types";
 
 const EMPTY_GRAPH: FlowGraph = { nodes: [], edges: [], tags: [] };
+
+/** localStorage key for user-dragged node positions (persisted per browser). */
+const POSITIONS_KEY = "filedrop.flowmap.positions";
+type XY = { x: number; y: number };
+
+/** Load saved node positions; safe on the server and against malformed data. */
+function loadPositions(): Record<string, XY> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(POSITIONS_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const out: Record<string, XY> = {};
+    for (const [id, v] of Object.entries(parsed as Record<string, unknown>)) {
+      const p = v as { x?: unknown; y?: unknown };
+      if (typeof p?.x === "number" && typeof p?.y === "number") out[id] = { x: p.x, y: p.y };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function savePositions(positions: Record<string, XY>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(POSITIONS_KEY, JSON.stringify(positions));
+  } catch {
+    /* ignore quota / serialization errors */
+  }
+}
+
+/**
+ * When a tag is selected, compute which nodes are fully visible (the tagged
+ * "primary" nodes plus their one-hop neighbors) vs. de-emphasized. Returns
+ * nulls when no tag is selected (everything visible, nothing dimmed).
+ */
+function computeVisibility(
+  graph: FlowGraph,
+  selectedTagId: string,
+): { visible: Set<string> | null; primary: Set<string> | null } {
+  if (!selectedTagId) return { visible: null, primary: null };
+  const primary = new Set(
+    graph.nodes.filter((n) => n.tagIds.includes(selectedTagId)).map((n) => n.id),
+  );
+  const visible = new Set(primary);
+  for (const e of graph.edges) {
+    if (primary.has(e.source)) visible.add(e.target);
+    if (primary.has(e.target)) visible.add(e.source);
+  }
+  return { visible, primary };
+}
 
 /** Toolbar lives inside ReactFlowProvider so export can read the live node store. */
 function FlowToolbar({
@@ -26,48 +82,50 @@ function FlowToolbar({
   selectedTagId,
   onTagChange,
   onRefresh,
+  onResetLayout,
   wrapperRef,
 }: {
   tags: Tag[];
   selectedTagId: string;
   onTagChange: (id: string) => void;
   onRefresh: () => void;
+  onResetLayout: () => void;
   wrapperRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const { getNodes } = useReactFlow();
   const [exporting, setExporting] = useState(false);
 
-  const download = (dataUrl: string, ext: string) => {
-    const a = document.createElement("a");
-    a.setAttribute("download", `flow-map.${ext}`);
-    a.setAttribute("href", dataUrl);
-    a.click();
-  };
+  // A4 landscape at 300 DPI, with a print margin so nodes never touch the edge.
+  const A4_LANDSCAPE = { width: 3508, height: 2480 };
+  const PRINT_MARGIN = 96;
 
-  const doExport = async (kind: "svg" | "png") => {
+  const exportPng = async () => {
     const viewport = wrapperRef.current?.querySelector<HTMLElement>(".react-flow__viewport");
     const visible = getNodes().filter((n) => !n.hidden);
     if (!viewport || visible.length === 0) return;
     setExporting(true);
     try {
       const bounds = getNodesBounds(visible);
-      const pad = 80;
-      const width = Math.max(Math.ceil(bounds.width) + pad * 2, 400);
-      const height = Math.max(Math.ceil(bounds.height) + pad * 2, 300);
-      const t = getViewportForBounds(bounds, width, height, 0.2, 2, 0.1);
+      const contentW = A4_LANDSCAPE.width - PRINT_MARGIN * 2;
+      const contentH = A4_LANDSCAPE.height - PRINT_MARGIN * 2;
+      // Fit the whole graph into the printable area, then offset by the margin
+      // so it sits centered inside the A4 sheet and is never clipped.
+      const t = getViewportForBounds(bounds, contentW, contentH, 0.05, 2, 0);
       const bg = getComputedStyle(document.body).backgroundColor || "#ffffff";
-      const opts = {
+      const dataUrl = await toPng(viewport, {
         backgroundColor: bg,
-        width,
-        height,
+        width: A4_LANDSCAPE.width,
+        height: A4_LANDSCAPE.height,
         style: {
-          width: `${width}px`,
-          height: `${height}px`,
-          transform: `translate(${t.x}px, ${t.y}px) scale(${t.zoom})`,
+          width: `${A4_LANDSCAPE.width}px`,
+          height: `${A4_LANDSCAPE.height}px`,
+          transform: `translate(${t.x + PRINT_MARGIN}px, ${t.y + PRINT_MARGIN}px) scale(${t.zoom})`,
         },
-      };
-      const dataUrl = kind === "svg" ? await toSvg(viewport, opts) : await toPng(viewport, opts);
-      download(dataUrl, kind);
+      });
+      const a = document.createElement("a");
+      a.setAttribute("download", "flow-map.png");
+      a.setAttribute("href", dataUrl);
+      a.click();
     } finally {
       setExporting(false);
     }
@@ -77,6 +135,13 @@ function FlowToolbar({
     <div className="flex items-center gap-2 flex-wrap mb-4">
       <button className="btn btn-secondary" onClick={onRefresh} title="Reload graph">
         <RefreshCw className="w-4 h-4" /> Refresh
+      </button>
+      <button
+        className="btn btn-secondary"
+        onClick={onResetLayout}
+        title="Reset node positions to the default layout"
+      >
+        <RotateCcw className="w-4 h-4" /> Reset layout
       </button>
       <select
         className="select"
@@ -90,8 +155,9 @@ function FlowToolbar({
         ))}
       </select>
       <div className="flex-1" />
-      <button className="btn btn-secondary" onClick={() => doExport("svg")} disabled={exporting}>Export SVG</button>
-      <button className="btn btn-secondary" onClick={() => doExport("png")} disabled={exporting}>Export PNG</button>
+      <button className="btn btn-secondary" onClick={exportPng} disabled={exporting}>
+        {exporting ? "Exporting\u2026" : "Export PNG (A4)"}
+      </button>
     </div>
   );
 }
@@ -129,39 +195,64 @@ export default function FlowMapPage() {
     return m;
   }, [graph.tags]);
 
-  const { rfNodes, rfEdges } = useMemo(() => {
-    // When a tag is selected, show its members ("primary") plus their one-hop
-    // neighbors (de-emphasized); hide everything else.
-    let visible: Set<string> | null = null;
-    let primary: Set<string> | null = null;
-    if (selectedTagId) {
-      primary = new Set(graph.nodes.filter((n) => n.tagIds.includes(selectedTagId)).map((n) => n.id));
-      visible = new Set(primary);
-      for (const e of graph.edges) {
-        if (primary.has(e.source)) visible.add(e.target);
-        if (primary.has(e.target)) visible.add(e.source);
-      }
+  // Node positions are owned here so drags persist (localStorage) and can be reset.
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const positionsRef = useRef<Record<string, XY>>({});
+
+  const buildNodes = useCallback((): Node[] => {
+    const { visible, primary } = computeVisibility(graph, selectedTagId);
+    return graph.nodes.map((n) => {
+      const tags = n.tagIds.map((id) => tagById.get(id)).filter(Boolean) as Tag[];
+      const pos = positionsRef.current[n.id] ?? layout.get(n.id) ?? { x: 0, y: 0 };
+      return {
+        id: n.id,
+        type: "flowNode",
+        position: pos,
+        width: NODE_WIDTH,
+        height: estimateNodeHeight(tags.length > 0),
+        data: { node: n, tags, dim: !!visible && !primary!.has(n.id) },
+        hidden: !!visible && !visible.has(n.id),
+      };
+    });
+  }, [graph, layout, tagById, selectedTagId]);
+
+  // Load saved positions once on mount (client only; absent during SSR).
+  useEffect(() => {
+    positionsRef.current = loadPositions();
+  }, []);
+
+  // Rebuild nodes whenever the graph, layout, or selection changes.
+  useEffect(() => {
+    setNodes(buildNodes());
+  }, [buildNodes, setNodes]);
+
+  const onNodeDragStop = useCallback<OnNodeDrag>((_e, node) => {
+    positionsRef.current = { ...positionsRef.current, [node.id]: { x: node.position.x, y: node.position.y } };
+    savePositions(positionsRef.current);
+  }, []);
+
+  const resetLayout = useCallback(() => {
+    positionsRef.current = {};
+    if (typeof window !== "undefined") {
+      try { window.localStorage.removeItem(POSITIONS_KEY); } catch { /* ignore */ }
     }
-    const rfNodes: Node[] = graph.nodes.map((n) => ({
-      id: n.id,
-      type: "flowNode",
-      position: layout.get(n.id) ?? { x: 0, y: 0 },
-      data: {
-        node: n,
-        tags: n.tagIds.map((id) => tagById.get(id)).filter(Boolean) as Tag[],
-        dim: !!visible && !primary!.has(n.id),
-      },
-      hidden: !!visible && !visible.has(n.id),
-    }));
-    const rfEdges: Edge[] = graph.edges.map((e) => ({
+    setNodes(buildNodes());
+  }, [buildNodes, setNodes]);
+
+  const rfEdges = useMemo<Edge[]>(() => {
+    const { visible } = computeVisibility(graph, selectedTagId);
+    const marker = { type: MarkerType.ArrowClosed, width: 18, height: 18 };
+    return buildDisplayEdges(graph.edges).map((e) => ({
       id: e.id,
       source: e.source,
       target: e.target,
-      label: e.label,
+      label: e.label || undefined,
+      type: "smoothstep",
+      markerEnd: marker,
+      markerStart: e.bidirectional ? marker : undefined,
       hidden: !!visible && !(visible.has(e.source) && visible.has(e.target)),
     }));
-    return { rfNodes, rfEdges };
-  }, [graph, layout, tagById, selectedTagId]);
+  }, [graph, selectedTagId]);
 
   const handleLogout = async () => { await fetch("/api/auth/logout", { method: "POST" }); router.replace("/login"); };
 
@@ -192,6 +283,7 @@ export default function FlowMapPage() {
                 selectedTagId={selectedTagId}
                 onTagChange={setSelectedTagId}
                 onRefresh={fetchGraph}
+                onResetLayout={resetLayout}
                 wrapperRef={wrapperRef}
               />
               <div
@@ -199,7 +291,12 @@ export default function FlowMapPage() {
                 className="rounded-lg border border-border overflow-hidden bg-surface-alt"
                 style={{ height: "calc(100vh - 220px)", minHeight: 460 }}
               >
-                <FlowMapCanvas nodes={rfNodes} edges={rfEdges} />
+                <FlowMapCanvas
+                  nodes={nodes}
+                  edges={rfEdges}
+                  onNodesChange={onNodesChange}
+                  onNodeDragStop={onNodeDragStop}
+                />
               </div>
             </ReactFlowProvider>
           )}

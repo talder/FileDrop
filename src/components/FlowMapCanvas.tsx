@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useEffect, useRef } from "react";
 import {
   ReactFlow,
   Background,
@@ -8,9 +8,12 @@ import {
   MiniMap,
   Handle,
   Position,
+  useReactFlow,
   type Node,
   type Edge,
   type NodeProps,
+  type OnNodesChange,
+  type OnNodeDrag,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
@@ -46,7 +49,16 @@ export interface FlowNodeData {
   dim: boolean;
 }
 
-const NODE_WIDTH = 210;
+export const NODE_WIDTH = 210;
+
+/**
+ * Approximate rendered height (px) of a node card. Used to give React Flow
+ * explicit node dimensions so the MiniMap can draw boxes and PNG export can
+ * compute accurate (non-clipping) bounds. Estimated slightly generously.
+ */
+export function estimateNodeHeight(hasTags: boolean): number {
+  return hasTags ? 84 : 56;
+}
 
 function FlowNodeCardImpl({ data }: NodeProps) {
   const { node, tags, dim } = data as unknown as FlowNodeData;
@@ -102,21 +114,49 @@ export const nodeTypes = { flowNode: FlowNodeCard };
 interface FlowMapCanvasProps {
   nodes: Node[];
   edges: Edge[];
+  onNodesChange: OnNodesChange;
+  onNodeDragStop: OnNodeDrag;
+}
+
+/** Accent color for a node in the minimap (falls back to gray). */
+function miniMapNodeColor(n: Node): string {
+  const kind = (n.data as unknown as FlowNodeData)?.node?.kind;
+  return (kind && KIND_META[kind]?.color) || "#9ca3af";
 }
 
 /**
  * Pan/zoom/draggable topology canvas. Must be rendered inside a
  * <ReactFlowProvider> so the toolbar can share the same store for export.
+ * Node positions are owned by the parent (for drag persistence + reset).
  */
-export default function FlowMapCanvas({ nodes, edges }: FlowMapCanvasProps) {
+export default function FlowMapCanvas({ nodes, edges, onNodesChange, onNodeDragStop }: FlowMapCanvasProps) {
+  const { fitView } = useReactFlow();
+  const didFit = useRef(false);
+
+  // The graph is fetched after mount, so nodes start empty and the `fitView`
+  // prop fits nothing. Fit once after nodes first populate.
+  useEffect(() => {
+    if (didFit.current || nodes.length === 0) return;
+    didFit.current = true;
+    const id = requestAnimationFrame(() => fitView({ padding: 0.2, duration: 200 }));
+    return () => cancelAnimationFrame(id);
+  }, [nodes, fitView]);
+
   return (
     <ReactFlow
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
+      onNodesChange={onNodesChange}
+      onNodeDragStop={onNodeDragStop}
       fitView
       minZoom={0.1}
-      defaultEdgeOptions={{ labelStyle: { fontSize: 10 } }}
+      defaultEdgeOptions={{
+        labelStyle: { fontSize: 11, fill: "var(--color-text-secondary)" },
+        labelBgPadding: [4, 2],
+        labelBgBorderRadius: 4,
+        labelBgStyle: { fill: "var(--color-surface)", fillOpacity: 0.92 },
+      }}
       proOptions={{ hideAttribution: true }}
     >
       <Background gap={20} />
@@ -124,7 +164,11 @@ export default function FlowMapCanvas({ nodes, edges }: FlowMapCanvasProps) {
       <MiniMap
         pannable
         zoomable
-        nodeColor={(n) => KIND_META[(n.data as unknown as FlowNodeData).node.kind].color}
+        nodeColor={miniMapNodeColor}
+        nodeStrokeColor={miniMapNodeColor}
+        nodeStrokeWidth={3}
+        nodeBorderRadius={4}
+        maskColor="rgba(15, 23, 42, 0.08)"
       />
     </ReactFlow>
   );
