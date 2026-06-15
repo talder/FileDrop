@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getCurrentUser } from "@/lib/auth";
-import { getIntegrations, writeIntegrations } from "@/lib/integrations";
+import { getIntegrations, writeIntegrations, normalizeArchivePolicy } from "@/lib/integrations";
 import { getSoapConnectionById } from "@/lib/soap-connections";
 import { getFtpConnectionById } from "@/lib/ftp-connections";
 import { getDestinationById } from "@/lib/destinations";
@@ -65,6 +65,12 @@ export async function POST(request: Request) {
     if (body.ftpConnectionId && !(await getFtpConnectionById(body.ftpConnectionId))) {
       return NextResponse.json({ error: "FTP connection not found" }, { status: 400 });
     }
+    if (body.archivePolicy && body.archivePolicy.enabled) {
+      const sub = typeof body.archivePolicy.subdirectory === "string" ? body.archivePolicy.subdirectory.trim() : "";
+      if (!sub) {
+        return NextResponse.json({ error: "Archive subdirectory is required when archiving is enabled" }, { status: 400 });
+      }
+    }
 
     const schedule = normalizeSchedule(body.schedule || DEFAULT_SCHEDULE);
     const scheduleCheck = validateSchedule(schedule);
@@ -92,6 +98,8 @@ export async function POST(request: Request) {
       ftpConnectionId: body.ftpConnectionId || undefined,
       ftpRemotePath: body.ftpRemotePath || undefined,
       deleteSourceAfterRun: !!body.deleteSourceAfterRun,
+      archivePolicy: normalizeArchivePolicy(body.archivePolicy),
+      postSourceAsBytes: !!body.postSourceAsBytes,
       schedule,
       notifications: body.notifications || undefined,
       webhook: normalizeWebhook(body.webhook),

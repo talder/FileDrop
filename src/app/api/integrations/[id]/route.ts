@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getIntegrations, writeIntegrations } from "@/lib/integrations";
+import { getIntegrations, writeIntegrations, normalizeArchivePolicy } from "@/lib/integrations";
 import { getSoapConnectionById } from "@/lib/soap-connections";
 import { getFtpConnectionById } from "@/lib/ftp-connections";
 import { getDestinationById } from "@/lib/destinations";
@@ -86,6 +86,16 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   if (body.responseFileNaming !== undefined) integration.responseFileNaming = body.responseFileNaming;
   if (body.ftpRemotePath !== undefined) integration.ftpRemotePath = body.ftpRemotePath || undefined;
   if (body.deleteSourceAfterRun !== undefined) integration.deleteSourceAfterRun = !!body.deleteSourceAfterRun;
+  if (body.archivePolicy !== undefined) {
+    if (body.archivePolicy && body.archivePolicy.enabled) {
+      const sub = typeof body.archivePolicy.subdirectory === "string" ? body.archivePolicy.subdirectory.trim() : "";
+      if (!sub) {
+        return NextResponse.json({ error: "Archive subdirectory is required when archiving is enabled" }, { status: 400 });
+      }
+    }
+    integration.archivePolicy = normalizeArchivePolicy(body.archivePolicy);
+  }
+  if (body.postSourceAsBytes !== undefined) integration.postSourceAsBytes = !!body.postSourceAsBytes;
   if (body.notifications !== undefined) integration.notifications = body.notifications || undefined;
   if (body.webhook !== undefined) integration.webhook = normalizeWebhook(body.webhook);
   if (body.retryPolicy !== undefined) integration.retryPolicy = normalizeRetryPolicy(body.retryPolicy);

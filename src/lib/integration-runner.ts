@@ -5,7 +5,7 @@ import path from "path";
 import http from "node:http";
 import https from "node:https";
 import { randomUUID } from "crypto";
-import type { Integration, TransferRunStatus, TransferTrigger } from "./types";
+import type { FileNaming, Integration, TransferRunStatus, TransferTrigger } from "./types";
 import { getSoapConnectionById } from "./soap-connections";
 import { getFtpConnectionById } from "./ftp-connections";
 import { ftpUploadFile } from "./ftp";
@@ -14,7 +14,7 @@ import { selectFiles, applyConflictPolicy } from "./transfer-util";
 import { applyFilenameMask } from "./file-naming";
 import { logFileUpload } from "./file-log";
 import { startIntegrationRun, finishIntegrationRun } from "./integration-runs";
-import { setIntegrationLastRun } from "./integrations";
+import { setIntegrationLastRun, normalizeArchivePolicy } from "./integrations";
 import { auditLog } from "./audit";
 import { normalizeRetryPolicy, runWithRetries } from "./retry-policy";
 import { sendFileNotification } from "./email";
@@ -82,6 +82,40 @@ async function moveSourceToDeadLetter(
   }
 }
 
+/**
+ * Move a successfully-processed source file into an archive subdirectory under
+ * the source root, applying the configured filename mask (so it can be
+ * timestamped). Collisions are resolved with the shared rename policy.
+ */
+async function moveSourceToArchive(
+  sourceFile: string,
+  sourceRoot: string,
+  subdirectory: string,
+  naming: FileNaming,
+): Promise<string | null> {
+  const archiveDir = path.join(sourceRoot, subdirectory || "success");
+  try {
+    await mkdir(archiveDir, { recursive: true });
+  } catch {
+    return null;
+  }
+
+  const desiredName = applyFilenameMask(naming, path.basename(sourceFile));
+  const resolution = applyConflictPolicy(
+    desiredName,
+    "rename",
+    (n) => existsSync(path.join(archiveDir, n)),
+  );
+  const target = path.join(archiveDir, resolution.name || desiredName);
+
+  try {
+    await rename(sourceFile, target);
+    return target;
+  } catch {
+    return null;
+  }
+}
+
 interface LocalFile extends SelectableFile {
   size: number;
 }
@@ -134,7 +168,7 @@ interface SoapResult {
  */
 function soapPost(opts: {
   url: string;
-  body: string;
+  body: string | Buffer;
   authBasic: string;
   soapAction?: string;
   ignoreTlsErrors: boolean;
@@ -151,7 +185,7 @@ function soapPost(opts: {
 
     const isHttps = endpoint.protocol === "https:";
     const transport = isHttps ? https : http;
-    const payload = Buffer.from(opts.body, "utf8");
+    const payload = typeof opts.body === "string" ? Buffer.from(opts.body, "utf8") : opts.body;
     const headers: Record<string, string> = {
       "Content-Type": "text/xml; charset=utf-8",
       Authorization: `Basic ${opts.authBasic}`,
@@ -279,6 +313,9 @@ export async function runIntegration(
   const recursive = !!integration.sourceSelection?.recursive;
   const naming = integration.responseFileNaming || { mode: "original" as const, mask: "" };
   const retryPolicy = normalizeRetryPolicy(integration.retryPolicy);
+  const archivePolicy = normalizeArchivePolicy(integration.archivePolicy);
+  // Byte-accurate posting only applies to raw envelope mode (template needs string substitution).
+  const postBytes = !!integration.postSourceAsBytes && soap.envelopeMode === "raw";
 
   // Build the SOAP request context once.
   const soapPassword = soap.passwordEncrypted ? decryptPassword(soap.passwordEncrypted) || "" : "";
@@ -306,9 +343,11 @@ export async function runIntegration(
     const sourcePath = path.join(sourceDir, file.relPath);
     const ts = new Date().toISOString();
 
-    let payload: string;
+    let payload: string | Buffer;
     try {
-      payload = await runWithRetries(retryPolicy, async () => readFile(sourcePath, "utf8")).then((res) => res.value);
+      payload = await runWithRetries(retryPolicy, async () =>
+        postBytes ? readFile(sourcePath) : readFile(sourcePath, "utf8"),
+      ).then((res) => res.value);
     } catch (err) {
       const msgBase = withAttemptMessage(`read failed: ${(err as Error).message}`, retryPolicy.enabled, retryPolicy.maxAttempts);
       const movedToDeadLetter = retryPolicy.enabled
@@ -326,8 +365,11 @@ export async function runIntegration(
     }
 
     // Build the SOAP request body.
-    const body = soap.envelopeMode === "template"
-      ? (soap.envelopeTemplate || "{PAYLOAD}").replace(/\{PAYLOAD\}/g, payload)
+    const body: string | Buffer = soap.envelopeMode === "template"
+      ? (soap.envelopeTemplate || "{PAYLOAD}").replace(
+          /\{PAYLOAD\}/g,
+          typeof payload === "string" ? payload : payload.toString("utf8"),
+        )
       : payload;
 
     // POST to the SOAP endpoint.
@@ -442,8 +484,19 @@ export async function runIntegration(
       continue;
     }
 
-    // Delete the source file after a fully successful run (when configured).
-    if (integration.deleteSourceAfterRun) {
+    // Archive the source on success (takes precedence), else delete when configured.
+    if (archivePolicy.enabled) {
+      try {
+        const archived = await runWithRetries(retryPolicy, async () =>
+          moveSourceToArchive(sourcePath, sourceDir, archivePolicy.subdirectory, archivePolicy.fileNaming),
+        ).then((res) => res.value);
+        if (!archived) {
+          warnings.push("archive source failed: could not move file to archive subdirectory");
+        }
+      } catch (err) {
+        warnings.push(`archive source failed: ${(err as Error).message}`);
+      }
+    } else if (integration.deleteSourceAfterRun) {
       try {
         await runWithRetries(retryPolicy, async () => {
           await unlink(sourcePath);

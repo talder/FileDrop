@@ -81,6 +81,15 @@ export interface RetryPolicy {
   deadLetterSubdirectory?: string;
 }
 
+export interface ArchivePolicy {
+  /** Move each successfully-processed source file into a subfolder instead of deleting it */
+  enabled: boolean;
+  /** Subdirectory under the source root to move successful files into, e.g. "success" */
+  subdirectory: string;
+  /** Naming applied to the archived source file (supports timestamp mask tokens) */
+  fileNaming: FileNaming;
+}
+
 export const FILE_NAMING_PRESETS: { label: string; mode: FileNaming["mode"]; mask: string }[] = [
   { label: "Keep original", mode: "original", mask: "" },
   { label: "DateTime + Original", mode: "mask", mask: "{YYYY}{MM}{DD}-{HH}{mm}{ss}_{ORIGINAL}{EXT}" },
@@ -411,6 +420,10 @@ export interface Integration {
   ftpRemotePath?: string;
   /** Delete the source file after a successful run */
   deleteSourceAfterRun: boolean;
+  /** Archive (move) the source file to a subfolder after a successful run. Takes precedence over deleteSourceAfterRun. */
+  archivePolicy?: ArchivePolicy;
+  /** Post the raw source bytes unchanged (raw envelope mode only) instead of a UTF-8 round-trip */
+  postSourceAsBytes?: boolean;
   /** Automatic run schedule */
   schedule: TransferSchedule;
   /** Email notification config */

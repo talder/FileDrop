@@ -13,7 +13,7 @@ FileDrop is a self-hosted file exchange and automation service built with Next.j
   - SOAP endpoints (used by Integrations),
   - FTP/FTPS servers (optional delivery target for Integrations).
 - **Transfers** for SFTP pull/push automation with selection rules, naming rules, conflict handling, and scheduler support.
-- **Integrations** that read source files, POST to SOAP, optionally save responses locally, optionally deliver to FTP/FTPS, and optionally delete source files after success.
+- **Integrations** that read source files, POST to SOAP, optionally save responses locally, optionally deliver to FTP/FTPS, optionally archive or delete source files after success, and optionally post raw bytes to preserve source encoding.
 - **Destinations** backed by Local paths, NFS, or SMB/CIFS (including mount/unmount and accessibility testing).
 - **Local folder browser** for selecting destination paths under `/DATA`.
 - **API key lifecycle** (generate, scoped access, revoke/delete, optional expiry).
@@ -103,7 +103,8 @@ Optional endpoint behavior:
   - one SOAP connection,
   - optional local response destination + response naming,
   - optional FTP/FTPS delivery target,
-  - optional source-file deletion after success,
+  - optional archiving (timestamped, to a subfolder) or deletion of source files after success,
+  - optional byte-accurate posting of the source file (raw envelope mode only),
   - optional schedule and notifications.
 - Supports manual and scheduled runs with run history.
 

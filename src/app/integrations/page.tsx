@@ -89,6 +89,13 @@ export default function IntegrationsPage() {
   const [fFtpRemotePath, setFFtpRemotePath] = useState("");
   // delete source
   const [fDeleteSource, setFDeleteSource] = useState(false);
+  // archive on success
+  const [fArchiveEnabled, setFArchiveEnabled] = useState(false);
+  const [fArchiveSubdir, setFArchiveSubdir] = useState("success");
+  const [fArchiveNamingPreset, setFArchiveNamingPreset] = useState(1);
+  const [fArchiveNamingMask, setFArchiveNamingMask] = useState("");
+  // byte-accurate posting
+  const [fPostBytes, setFPostBytes] = useState(false);
   // schedule
   const [fSchedEnabled, setFSchedEnabled] = useState(false);
   const [fSchedEvery, setFSchedEvery] = useState("5");
@@ -142,6 +149,8 @@ export default function IntegrationsPage() {
     setFNamingPreset(0); setFNamingMask("");
     setFFtpEnabled(false); setFFtpId(ftps[0]?.id || ""); setFFtpRemotePath("");
     setFDeleteSource(false);
+    setFArchiveEnabled(false); setFArchiveSubdir("success"); setFArchiveNamingPreset(1); setFArchiveNamingMask("");
+    setFPostBytes(false);
     setFSchedEnabled(false); setFSchedEvery("5"); setFSchedUnit("minutes"); setFSchedAtTime(""); setFSchedMode("interval");
     setFNotifyOn("none"); setFNotifyEmail("");
     setFWebhookOn("none"); setFWebhookUrl(""); setFWebhookSecret("");
@@ -153,6 +162,11 @@ export default function IntegrationsPage() {
   const insertNamingToken = (token: string) => {
     setFNamingPreset(CUSTOM_NAMING_IDX);
     setFNamingMask((prev) => `${prev}${token}`);
+  };
+
+  const insertArchiveToken = (token: string) => {
+    setFArchiveNamingPreset(CUSTOM_NAMING_IDX);
+    setFArchiveNamingMask((prev) => `${prev}${token}`);
   };
 
   const openEdit = (i: Integration) => {
@@ -179,6 +193,17 @@ export default function IntegrationsPage() {
     setFFtpId(i.ftpConnectionId || ftps[0]?.id || "");
     setFFtpRemotePath(i.ftpRemotePath || "");
     setFDeleteSource(!!i.deleteSourceAfterRun);
+    const ap = i.archivePolicy;
+    setFArchiveEnabled(!!ap?.enabled);
+    setFArchiveSubdir(ap?.subdirectory || "success");
+    const apFn = ap?.fileNaming || { mode: "original" as const, mask: "" };
+    if (apFn.mode === "original") { setFArchiveNamingPreset(0); setFArchiveNamingMask(""); }
+    else {
+      const apIdx = NAMING_PRESETS.findIndex((p) => p.mode === "mask" && p.mask === apFn.mask);
+      if (apIdx >= 0) { setFArchiveNamingPreset(apIdx); setFArchiveNamingMask(""); }
+      else { setFArchiveNamingPreset(CUSTOM_NAMING_IDX); setFArchiveNamingMask(apFn.mask); }
+    }
+    setFPostBytes(!!i.postSourceAsBytes);
     setFSchedEnabled(!!i.schedule?.enabled); setFSchedEvery(String(i.schedule?.every || 5));
     setFSchedUnit(i.schedule?.unit || "minutes"); setFSchedAtTime(i.schedule?.atTime || "");
     setFSchedMode(i.schedule?.unit === "days" && i.schedule?.atTime ? "daily" : "interval");
@@ -204,6 +229,10 @@ export default function IntegrationsPage() {
     const responseFileNaming: FileNaming = preset.mode === "original"
       ? { mode: "original", mask: "" }
       : { mode: "mask", mask: fNamingPreset === CUSTOM_NAMING_IDX ? fNamingMask : preset.mask };
+    const archivePreset = NAMING_PRESETS[fArchiveNamingPreset];
+    const archiveFileNaming: FileNaming = archivePreset.mode === "original"
+      ? { mode: "original", mask: "" }
+      : { mode: "mask", mask: fArchiveNamingPreset === CUSTOM_NAMING_IDX ? fArchiveNamingMask : archivePreset.mask };
     const exts = fSelExts.split(",").map((s) => s.trim()).filter(Boolean).map((s) => s.startsWith(".") ? s : `.${s}`);
     const sourceSelection: Integration["sourceSelection"] = { mode: fSelMode, recursive: fSelRecursive };
     if (fSelMode === "single" || fSelMode === "glob") sourceSelection.value = fSelValue;
@@ -221,6 +250,8 @@ export default function IntegrationsPage() {
       ftpConnectionId: fFtpEnabled ? fFtpId : "",
       ftpRemotePath: fFtpEnabled ? (fFtpRemotePath || undefined) : undefined,
       deleteSourceAfterRun: fDeleteSource,
+      archivePolicy: { enabled: fArchiveEnabled, subdirectory: fArchiveSubdir.trim() || "success", fileNaming: archiveFileNaming },
+      postSourceAsBytes: fPostBytes,
       schedule: fSchedMode === "daily"
         ? {
             enabled: fSchedEnabled,
@@ -511,6 +542,45 @@ export default function IntegrationsPage() {
                   <div className="flex items-center gap-2">
                     <button className={`toggle ${fDeleteSource ? "active" : ""}`} onClick={() => setFDeleteSource(!fDeleteSource)}><span className="toggle-knob" /></button>
                     <span className="text-sm text-text-secondary">Delete source file after successful SOAP call</span>
+                  </div>
+
+                  {/* Archive source on success */}
+                  <div className="p-3 rounded-lg border border-border space-y-3">
+                    <div className="flex items-center gap-2">
+                      <button className={`toggle ${fArchiveEnabled ? "active" : ""}`} onClick={() => setFArchiveEnabled(!fArchiveEnabled)}><span className="toggle-knob" /></button>
+                      <span className="text-sm font-medium text-text-secondary">Archive source file on success</span>
+                    </div>
+                    {fArchiveEnabled && (
+                      <>
+                        <div>
+                          <label className="input-label">Archive Subdirectory</label>
+                          <input className="input" value={fArchiveSubdir} onChange={(e) => setFArchiveSubdir(e.target.value)} placeholder="success" />
+                        </div>
+                        <div>
+                          <label className="input-label">Archive File Naming</label>
+                          <select className="select" value={fArchiveNamingPreset} onChange={(e) => setFArchiveNamingPreset(parseInt(e.target.value))}>
+                            {NAMING_PRESETS.map((p, i) => <option key={i} value={i}>{p.label}{p.mask ? ` — ${p.mask}` : ""}</option>)}
+                          </select>
+                          {fArchiveNamingPreset === CUSTOM_NAMING_IDX && (
+                            <>
+                              <input className="input mt-2" value={fArchiveNamingMask} onChange={(e) => setFArchiveNamingMask(e.target.value)} placeholder="{YYYY}{MM}{DD}-{HH}{mm}{ss}_{ORIGINAL}{EXT}" />
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {FILE_NAMING_TOKENS.map((token) => (
+                                  <button key={token} type="button" className="badge badge-muted" onClick={() => insertArchiveToken(token)}>{token}</button>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        <p className="text-xs text-text-muted">Moves each successful file here, out of the source folder. Takes precedence over deleting the source.</p>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Byte-accurate posting */}
+                  <div className="flex items-center gap-2">
+                    <button className={`toggle ${fPostBytes ? "active" : ""}`} onClick={() => setFPostBytes(!fPostBytes)}><span className="toggle-knob" /></button>
+                    <span className="text-sm text-text-secondary">Post source as raw bytes (preserve original encoding; raw-mode SOAP endpoints only)</span>
                   </div>
 
                   {/* Schedule */}
