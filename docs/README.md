@@ -16,6 +16,7 @@ FileDrop is a self-hosted file exchange and automation service built with Next.j
 - **Integrations** that read source files, POST to SOAP, optionally save responses locally, optionally deliver to FTP/FTPS, optionally archive or delete source files after success, and optionally post raw bytes to preserve source encoding.
 - **Destinations** backed by Local paths, NFS, or SMB/CIFS (including mount/unmount and accessibility testing).
 - **Local folder browser** for selecting destination paths under `/DATA`, including creating, renaming, and deleting folders.
+- **Data browser** (`/data`) for uploading files and whole folders into `/DATA` and downloading files or an entire folder (as a streamed zip), with in-place folder management.
 - **Remote SFTP browser** for exploring a server's folder tree and picking a transfer's remote path.
 - **Flow Map** for visualizing the full source-to-destination topology as an interactive diagram, with tag filtering and SVG/PNG export.
 - **Tags** as a standalone module to group related items across modules and drive flow-map filtering.
@@ -56,8 +57,9 @@ npm start
 | `/` | Dashboard: daily/total file stats, endpoint/key counts, recent file activity |
 | `/flow-map` | Visual topology map of all connectors and file movements; filter by tag; export SVG/PNG |
 | `/tags` | Manage tags that group items across modules (used by the flow map) |
-| `/endpoints` | Manage drop endpoints (slug, type, destination, limits, retrieval, notifications, naming) |
+| `/endpoints` | Manage drop endpoints (slug, type, destination, routing filters, limits, retrieval, notifications, naming) |
 | `/destinations` | Manage local/NFS/SMB destinations, test, mount/unmount, and browse/manage folders under `/DATA` |
+| `/data` | Browse `/DATA`: upload files/folders, download files or a folder as a zip, and create/rename/delete folders |
 | `/sftp-servers` | Manage reusable outbound SFTP server connections; browse a server's folders |
 | `/transfers` | Manage SFTP transfer jobs (pull/push), schedules, run now, run history; browse the remote path |
 | `/soap-connections` | Manage reusable SOAP endpoint definitions and connection tests |
@@ -82,6 +84,7 @@ npm start
 
 Optional endpoint behavior:
 - extension whitelist,
+- routing filters (route matching uploads into per-filter subfolders),
 - per-endpoint max file size override,
 - file naming mode/pattern,
 - retrieval enabled (`GET /api/drop/{slug}` and `/api/drop/{slug}/{filename}`),
@@ -93,6 +96,21 @@ Optional endpoint behavior:
 - Use **API key as password**.
 - Accessible SFTP directories are limited to endpoint slugs allowed by that API key.
 
+### Endpoint routing filters (HTTP + inbound SFTP)
+Each endpoint can carry an ordered list of **filters** that route incoming files into different subfolders of the destination based on the filename. Filters apply to both HTTP drops (`POST /api/drop/{slug}`) and inbound embedded-SFTP writes.
+Each filter has:
+- a **name** (label only),
+- **wildcards** (glob patterns such as `invoice_*` or `*.pdf`, matched case-insensitively against the filename; empty = no wildcard constraint),
+- **extensions** (e.g. `.pdf`, `.xml`, normalized to lowercase; empty = no extension constraint),
+- a **target subdirectory** (relative to the destination root) that matching files are written into.
+
+Matching semantics:
+- A file matches a filter only when it satisfies **every specified** criterion (extension **and** wildcard). An empty criterion is ignored, so a filter with no criteria is a catch-all.
+- Filters are evaluated **top-to-bottom; the first match wins**. Reorder them in the endpoint modal to set precedence.
+- Files matching **no** filter fall back to the endpoint's **default subdirectory**.
+- Target subdirectories are sanitized: absolute paths and `..` traversal are rejected, so files can never escape the destination root.
+
+Retrieval caveat: file retrieval (`GET /api/drop/{slug}` / `/api/drop/{slug}/{filename}`) and SFTP reads use the endpoint's default subdirectory and do **not** traverse per-filter subfolders.
 ### 3) SFTP Transfers (outbound jobs)
 - A Transfer binds:
   - one SFTP server connection,
@@ -158,6 +176,19 @@ Behavior:
 - Create, rename, and delete folders in place; deleting a folder is recursive and requires typing the folder name to confirm.
 - Rejects paths outside `/DATA` and invalid folder names.
 
+## Data browser (upload/download)
+The **Data** page (`/data`, reachable from the sidebar) is a full read/write browser for `/DATA`.
+
+Capabilities:
+- Navigate folders with a clickable breadcrumb, parent (`Up`), root jump, and refresh.
+- **Upload files**: pick one or more files into the current folder.
+- **Upload folder**: pick a folder via the browser's directory picker; its subtree is recreated beneath the current folder. Each file is size-checked against the global max file size.
+- **Download a file**: streamed back as an attachment.
+- **Download a folder**: streamed as `<folder>.zip`. The archive is **store-only** (uncompressed) and **non-ZIP64**, so a folder must total under ~2 GB; larger folders are rejected with HTTP 413.
+- Create, rename, and delete folders in place (reusing the `/api/destinations/folders` endpoints).
+
+All operations are session-authenticated and confined to `/DATA`; uploads reject `..`, absolute paths, and unsafe names, and uploads/downloads are recorded in the audit log (`data.file.upload`, `data.download`).
+
 ## Remote SFTP browser
 Browse a saved SFTP server's directory tree to discover and copy remote paths.
 
@@ -208,6 +239,9 @@ Both SVG and PNG export of the current view are available from the flow-map tool
 | `POST` | `/api/destinations/folders` | Create a folder (`{parentPath, name}`) under `/DATA` |
 | `PATCH` | `/api/destinations/folders` | Rename a folder (`{path, newName}`) under `/DATA` |
 | `DELETE` | `/api/destinations/folders` | Delete a folder (`{path, recursive}`) under `/DATA` |
+| `GET` | `/api/data/list?path=...` | List folders + files (with size/mtime) under `/DATA` |
+| `POST` | `/api/data/upload` | Upload files/folder into `/DATA` (`multipart/form-data`: `path` + `file`/`files`) |
+| `GET` | `/api/data/download?path=...` | Download a file, or a folder as a store-only zip |
 | `GET/POST` | `/api/sftp-connections` | List/create SFTP server connections |
 | `GET/PUT/DELETE` | `/api/sftp-connections/{id}` | Read/update/delete SFTP connection |
 | `POST` | `/api/sftp-connections/{id}/test` | Test SFTP connection (`id=new` supports unsaved values) |
@@ -248,6 +282,8 @@ Both SVG and PNG export of the current view are available from the flow-map tool
 - `/api/transfers/{id}/runs`: `limit` (1–200)
 - `/api/integrations/{id}/runs`: `limit` (1–200)
 - `/api/destinations/browse`: `path` (must resolve inside `/DATA`)
+- `/api/data/list`: `path` (must resolve inside `/DATA`)
+- `/api/data/download`: `path` (file or folder inside `/DATA`)
 
 ## Settings and configuration
 ### Environment variables

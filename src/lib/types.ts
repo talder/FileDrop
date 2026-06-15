@@ -109,6 +109,24 @@ export const FILE_NAMING_PRESETS: { label: string; mode: FileNaming["mode"]; mas
  */
 export type EndpointType = "api" | "sftp-server";
 
+/**
+ * A routing rule on an endpoint. Incoming files are tested against the
+ * endpoint's ordered `filters`; the first matching filter decides which
+ * subdirectory (relative to the destination root) the file is written to.
+ */
+export interface EndpointFilter {
+  /** Stable id (React key + reordering). */
+  id: string;
+  /** Human label, e.g. "Invoices". */
+  name: string;
+  /** Glob patterns (`*`/`?`) matched against the filename. Empty = no wildcard constraint. */
+  wildcards: string[];
+  /** Allowed extensions, normalized to lowercase with a leading dot. Empty = no extension constraint. */
+  extensions: string[];
+  /** Subdirectory (relative to the destination root) matched files are routed into. */
+  targetSubdirectory: string;
+}
+
 export interface DropEndpoint {
   id: string;
   /** URL slug, e.g. "invoices" → /api/drop/invoices */
@@ -120,6 +138,8 @@ export interface DropEndpoint {
   destinationId: string;
   /** Subdirectory within the destination (optional) */
   subdirectory?: string;
+  /** Ordered routing filters; the first match decides the target subdirectory. */
+  filters?: EndpointFilter[];
   /** Allowed file extensions, e.g. [".pdf", ".xml"]. Empty = allow all. */
   allowedExtensions: string[];
   /** Max file size in bytes. 0 = use global default. */

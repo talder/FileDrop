@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getCurrentUser } from "@/lib/auth";
 import { readJsonConfig, writeJsonConfig } from "@/lib/config";
+import { normalizeFilters } from "@/lib/endpoint-filters";
 import type { DropEndpoint } from "@/lib/types";
 
 const ENDPOINTS_FILE = "endpoints.json";
@@ -68,6 +69,7 @@ export async function POST(request: Request) {
       type,
       destinationId,
       subdirectory: subdirectory || undefined,
+      filters: normalizeFilters(body.filters),
       allowedExtensions: Array.isArray(allowedExtensions) ? allowedExtensions : [],
       maxFileSize: maxFileSize || 0,
       enabled: enabled !== false,

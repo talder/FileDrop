@@ -11,6 +11,7 @@ import { logFileUpload } from "./file-log";
 import { logConnection } from "./connection-log";
 import { auditLog } from "./audit";
 import { applyFilenameMask } from "./file-naming";
+import { resolveFilterSubdirectory } from "./endpoint-filters";
 import type { DropEndpoint, ApiKey, FileNaming, AppSettings, DEFAULT_SETTINGS } from "./types";
 
 const ENDPOINTS_FILE = "endpoints.json";
@@ -42,11 +43,12 @@ function ensureHostKey(): Buffer {
  * Resolve the destination path for an SFTP-server endpoint.
  * Returns null if the endpoint is not accessible.
  */
-async function resolveEndpointPath(endpoint: DropEndpoint): Promise<{ destPath: string; destName: string } | null> {
+async function resolveEndpointPath(endpoint: DropEndpoint, subdirOverride?: string): Promise<{ destPath: string; destName: string } | null> {
   const dest = await getDestinationById(endpoint.destinationId);
   if (!dest) return null;
+  const subdir = subdirOverride !== undefined ? subdirOverride : endpoint.subdirectory;
   let destPath = dest.localPath;
-  if (endpoint.subdirectory) destPath = path.join(destPath, endpoint.subdirectory);
+  if (subdir) destPath = path.join(destPath, subdir);
   if (!isPathAccessible(dest.localPath)) return null;
   try { mkdirSync(destPath, { recursive: true }); } catch { /* exists */ }
   return { destPath, destName: dest.name };
@@ -224,19 +226,24 @@ export async function startSftpServer(): Promise<void> {
             const ep = endpoints.find((e) => e.slug === slug);
             if (!ep) { sftp.status(reqid, 2); return; }
 
-            const resolved = await resolveEndpointPath(ep);
+            // Check if this is a write (upload) or read (download)
+            const isWrite = (flags & 0x00000002) !== 0 || (flags & 0x00000008) !== 0; // WRITE or CREAT
+            const relName = parts.slice(1).join("/");
+
+            // For writes, route via the endpoint's filters using the incoming filename.
+            const resolved = await resolveEndpointPath(
+              ep,
+              isWrite ? resolveFilterSubdirectory(ep, path.basename(relName)) : undefined,
+            );
             if (!resolved) { sftp.status(reqid, 4); return; }
 
             const id = handleCounter++;
             const handle = Buffer.alloc(4);
             handle.writeUInt32BE(id);
 
-            // Check if this is a write (upload) or read (download)
-            const isWrite = (flags & 0x00000002) !== 0 || (flags & 0x00000008) !== 0; // WRITE or CREAT
-
             if (isWrite) {
               openHandles.set(id, {
-                filePath: parts.slice(1).join("/"),
+                filePath: relName,
                 endpoint: ep,
                 destPath: resolved.destPath,
                 destName: resolved.destName,
@@ -245,7 +252,7 @@ export async function startSftpServer(): Promise<void> {
               sftp.handle(reqid, handle);
             } else if (ep.allowRetrieval) {
               // Read mode - allow download
-              const localFile = path.join(resolved.destPath, path.basename(parts.slice(1).join("/")));
+              const localFile = path.join(resolved.destPath, path.basename(relName));
               if (existsSync(localFile) && statSync(localFile).isFile()) {
                 openHandles.set(id, {
                   filePath: localFile,

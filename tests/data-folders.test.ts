@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 // Pure module: imports only `path` + `fs/promises` (both core), so it loads
 // safely under `node --test` type-stripping without pulling in native deps.
-import { isValidFolderName } from "../src/lib/data-folders.ts";
+import { isValidFolderName, sanitizeRelativeUploadPath } from "../src/lib/data-folders.ts";
 
 describe("isValidFolderName", () => {
   it("accepts ordinary folder names", () => {
@@ -32,5 +32,35 @@ describe("isValidFolderName", () => {
 
   it("rejects names longer than 255 characters", () => {
     assert.equal(isValidFolderName("a".repeat(256)), false);
+  });
+});
+
+describe("sanitizeRelativeUploadPath", () => {
+  it("splits nested relative paths into clean segments", () => {
+    assert.deepEqual(sanitizeRelativeUploadPath("file.txt"), ["file.txt"]);
+    assert.deepEqual(sanitizeRelativeUploadPath("a/b/c.txt"), ["a", "b", "c.txt"]);
+    // Backslash separators (e.g. from Windows) are handled too.
+    assert.deepEqual(sanitizeRelativeUploadPath("a\\b\\c.txt"), ["a", "b", "c.txt"]);
+    // Repeated separators collapse rather than producing empty segments.
+    assert.deepEqual(sanitizeRelativeUploadPath("a//b"), ["a", "b"]);
+  });
+
+  it("rejects empty or separator-only paths", () => {
+    assert.equal(sanitizeRelativeUploadPath(""), null);
+    assert.equal(sanitizeRelativeUploadPath("///"), null);
+  });
+
+  it("rejects absolute paths", () => {
+    assert.equal(sanitizeRelativeUploadPath("/etc/passwd"), null);
+    assert.equal(sanitizeRelativeUploadPath("\\windows\\system32"), null);
+  });
+
+  it("rejects traversal via dot-dot segments", () => {
+    assert.equal(sanitizeRelativeUploadPath("../secret"), null);
+    assert.equal(sanitizeRelativeUploadPath("a/../b"), null);
+  });
+
+  it("rejects control characters in any segment", () => {
+    assert.equal(sanitizeRelativeUploadPath("a/\u0000/b"), null);
   });
 });

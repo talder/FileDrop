@@ -13,6 +13,7 @@ import { auditLog } from "@/lib/audit";
 import { sendFileNotification } from "@/lib/email";
 import { sendWebhookNotification } from "@/lib/webhook";
 import { cleanupEndpointRetention } from "@/lib/retention";
+import { resolveFilterSubdirectory } from "@/lib/endpoint-filters";
 import type { DropEndpoint, FileNaming } from "@/lib/types";
 
 const ENDPOINTS_FILE = "endpoints.json";
@@ -143,10 +144,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const globalSettings = await readJsonConfig<{ maxFileSize: number }>(SETTINGS_FILE, { maxFileSize: 52428800 });
   const maxSize = endpoint.maxFileSize > 0 ? endpoint.maxFileSize : globalSettings.maxFileSize;
 
-  let destPath = dest.localPath;
-  if (endpoint.subdirectory) destPath = path.join(destPath, endpoint.subdirectory);
-  try { await mkdir(destPath, { recursive: true }); } catch { /* exists */ }
-
   if (!isPathAccessible(dest.localPath)) {
     return NextResponse.json({ error: "Destination is not accessible" }, { status: 503 });
   }
@@ -160,6 +157,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   for (const fileEntry of files) {
     if (!(fileEntry instanceof File)) continue;
     const originalName = fileEntry.name || "unnamed";
+    // Route this file via the endpoint's filters (first match wins; falls back
+    // to the endpoint's default subdirectory when nothing matches).
+    const routedSubdir = resolveFilterSubdirectory(endpoint, originalName);
+    const destPath = routedSubdir ? path.join(dest.localPath, routedSubdir) : dest.localPath;
     const basePayload = {
       endpointSlug: slug,
       originalFilename: originalName,
@@ -221,6 +222,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     try {
+      await mkdir(destPath, { recursive: true });
       await writeFile(filePath, buffer);
       const logId = logFileUpload({ timestamp: new Date().toISOString(), filename, originalFilename: originalName, fileSize: fileEntry.size, mimeType: fileEntry.type || "", sourceIp, sourceHostname: hostname, apiKeyId: apiKey.id, apiKeyPartyName: apiKey.partyName, endpointSlug: slug, destinationPath: destPath, destinationName: dest.name, checksumSha256, status: "success" });
       results.push({ filename, originalFilename: originalName, size: fileEntry.size, id: logId });

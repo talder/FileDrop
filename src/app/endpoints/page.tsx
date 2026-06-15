@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Copy, Globe, X, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, Copy, Globe, X, Check, ArrowUp, ArrowDown } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -21,6 +21,13 @@ const FILE_NAMING_PRESETS = [
 
 interface DestOption { id: string; name: string; type: DestinationType; }
 
+interface FilterRow { id: string; name: string; wildcards: string; extensions: string; targetSubdirectory: string; }
+
+function newFilterId(): string {
+  const g = globalThis as { crypto?: { randomUUID?: () => string } };
+  return g.crypto?.randomUUID?.() ?? `f_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export default function EndpointsPage() {
   const router = useRouter();
   const [user, setUser] = useState<SanitizedUser | null>(null);
@@ -37,6 +44,7 @@ export default function EndpointsPage() {
   const [fType, setFType] = useState<EndpointType>("api");
   const [fDestId, setFDestId] = useState("");
   const [fSubdir, setFSubdir] = useState("");
+  const [fFilters, setFFilters] = useState<FilterRow[]>([]);
   const [fExtensions, setFExtensions] = useState("");
   const [fMaxSize, setFMaxSize] = useState("");
   const [fEnabled, setFEnabled] = useState(true);
@@ -76,7 +84,7 @@ export default function EndpointsPage() {
 
   const openCreate = () => {
     setEditTarget(null);
-    setFSlug(""); setFDesc(""); setFType("api"); setFDestId(destinations[0]?.id || ""); setFSubdir("");
+    setFSlug(""); setFDesc(""); setFType("api"); setFDestId(destinations[0]?.id || ""); setFSubdir(""); setFFilters([]);
     setFExtensions(""); setFMaxSize(""); setFEnabled(true); setFNamingPreset(1); setFNamingMask("");
     setFAllowRetrieval(false);
     setFRetentionDays(""); setFRejectDuplicates(false);
@@ -91,10 +99,30 @@ export default function EndpointsPage() {
     setFNamingMask((prev) => `${prev}${token}`);
   };
 
+  const addFilter = () => setFFilters((prev) => [...prev, { id: newFilterId(), name: "", wildcards: "", extensions: "", targetSubdirectory: "" }]);
+  const updateFilter = (idx: number, patch: Partial<FilterRow>) =>
+    setFFilters((prev) => prev.map((f, i) => (i === idx ? { ...f, ...patch } : f)));
+  const removeFilter = (idx: number) => setFFilters((prev) => prev.filter((_, i) => i !== idx));
+  const moveFilter = (idx: number, dir: -1 | 1) =>
+    setFFilters((prev) => {
+      const next = [...prev];
+      const j = idx + dir;
+      if (j < 0 || j >= next.length) return prev;
+      [next[idx], next[j]] = [next[j], next[idx]];
+      return next;
+    });
+
   const openEdit = (e: DropEndpoint) => {
     setEditTarget(e);
     setFSlug(e.slug); setFDesc(e.description); setFType(e.type || "api"); setFDestId(e.destinationId);
     setFSubdir(e.subdirectory || ""); setFExtensions(e.allowedExtensions.join(", "));
+    setFFilters((e.filters || []).map((flt) => ({
+      id: flt.id || newFilterId(),
+      name: flt.name || "",
+      wildcards: (flt.wildcards || []).join(", "),
+      extensions: (flt.extensions || []).join(", "),
+      targetSubdirectory: flt.targetSubdirectory || "",
+    })));
     setFMaxSize(e.maxFileSize > 0 ? String(e.maxFileSize / 1024 / 1024) : ""); setFEnabled(e.enabled);
     setFAllowRetrieval(e.allowRetrieval || false);
     setFRetentionDays(e.retentionDays !== undefined ? String(e.retentionDays) : "");
@@ -118,12 +146,22 @@ export default function EndpointsPage() {
   const handleSubmit = async () => {
     setFormError("");
     const exts = fExtensions.split(",").map((s) => s.trim()).filter(Boolean).map((s) => s.startsWith(".") ? s : `.${s}`);
+    const filters = fFilters
+      .map((f) => ({
+        id: f.id,
+        name: f.name.trim(),
+        wildcards: f.wildcards.split(",").map((s) => s.trim()).filter(Boolean),
+        extensions: f.extensions.split(",").map((s) => s.trim()).filter(Boolean).map((s) => (s.startsWith(".") ? s : `.${s}`).toLowerCase()),
+        targetSubdirectory: f.targetSubdirectory.trim(),
+      }))
+      .filter((f) => f.targetSubdirectory);
     const preset = FILE_NAMING_PRESETS[fNamingPreset];
     const fileNaming: FileNaming = preset.mode === "original"
       ? { mode: "original", mask: "" }
       : { mode: "mask", mask: fNamingPreset === 5 ? fNamingMask : preset.mask };
     const body: Record<string, unknown> = {
       slug: fSlug, description: fDesc, type: fType, destinationId: fDestId, subdirectory: fSubdir || undefined,
+      filters,
       allowedExtensions: exts, maxFileSize: fMaxSize ? parseFloat(fMaxSize) * 1024 * 1024 : 0, enabled: fEnabled,
       fileNaming, allowRetrieval: fAllowRetrieval,
       retentionDays: fRetentionDays.trim() ? Math.max(0, Math.floor(Number(fRetentionDays))) : null,
@@ -209,7 +247,7 @@ export default function EndpointsPage() {
                       </td>
                       <td><span className={`badge ${e.type === "sftp-server" ? "badge-warning" : "badge-info"}`}>{e.type === "sftp-server" ? "SFTP SERVER" : "API"}</span></td>
                       <td className="text-xs text-text-muted">{e.description || "—"}</td>
-                      <td className="text-xs">{dest?.name || "Unknown"}</td>
+                      <td className="text-xs">{dest?.name || "Unknown"}{e.filters && e.filters.length > 0 ? <span className="text-text-muted"> · {e.filters.length} filter{e.filters.length > 1 ? "s" : ""}</span> : null}</td>
                       <td className="text-xs">{e.fileNaming?.mode === "original" ? "Original" : "Mask"}{e.allowRetrieval ? " + Get" : ""}</td>
                       <td>
                         <button onClick={() => toggleEnabled(e)} className={`badge ${e.enabled ? "badge-success" : "badge-danger"}`} style={{ cursor: "pointer" }}>
@@ -230,140 +268,193 @@ export default function EndpointsPage() {
           )}
 
           {showModal && (
-            <ModalOverlay onClose={() => setShowModal(false)} maxWidth={520}>
+            <ModalOverlay onClose={() => setShowModal(false)} maxWidth={820}>
                 <div className="modal-header">
                   <h2>{editTarget ? "Edit Endpoint" : "New Endpoint"}</h2>
                   <button onClick={() => setShowModal(false)} className="btn-ghost p-1 rounded-lg"><X className="w-4 h-4" /></button>
                 </div>
-                <div className="modal-body space-y-4">
-                  <div>
-                    <label className="input-label">Slug (URL path)</label>
-                    <input className="input" value={fSlug} onChange={(e) => setFSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} placeholder="invoices" disabled={!!editTarget} />
-                    <p className="text-xs text-text-muted mt-1">URL: /api/drop/{fSlug || "..."}</p>
-                  </div>
-                  <div>
-                    <label className="input-label">Description</label>
-                    <input className="input" value={fDesc} onChange={(e) => setFDesc(e.target.value)} placeholder="Invoice uploads from external parties" />
-                  </div>
-                  <div>
-                    <label className="input-label">Destination</label>
-                    <select className="select" value={fDestId} onChange={(e) => setFDestId(e.target.value)}>
-                      {destinations.map((d) => <option key={d.id} value={d.id}>{d.name} ({d.type})</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="input-label">Subdirectory (optional)</label>
-                    <input className="input" value={fSubdir} onChange={(e) => setFSubdir(e.target.value)} placeholder="e.g. 2024/invoices" />
-                  </div>
-                  <div>
-                    <label className="input-label">Allowed Extensions (comma-separated, empty = all)</label>
-                    <input className="input" value={fExtensions} onChange={(e) => setFExtensions(e.target.value)} placeholder=".pdf, .xml, .csv" />
-                  </div>
-                  <div>
-                    <label className="input-label">Max File Size (MB, empty = global default)</label>
-                    <input className="input" type="number" value={fMaxSize} onChange={(e) => setFMaxSize(e.target.value)} placeholder="50" />
-                  </div>
-                  <div>
-                    <label className="input-label">Retention Override (days, empty = global setting)</label>
-                    <input className="input" type="number" min={0} value={fRetentionDays} onChange={(e) => setFRetentionDays(e.target.value)} placeholder="30" />
-                  </div>
-                  {/* Endpoint Type */}
-                  <div>
-                    <label className="input-label">Endpoint Type</label>
-                    <select className="select" value={fType} onChange={(e) => setFType(e.target.value as EndpointType)}>
-                      <option value="api">HTTP API (upload/download)</option>
-                      <option value="sftp-server">SFTP Server (parties connect here)</option>
-                    </select>
+                <div className="modal-body space-y-5">
+                  {/* Basics */}
+                  <div className="p-3 rounded-lg border border-border space-y-3">
+                    <p className="text-xs font-semibold text-text-muted uppercase">Basics</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="input-label">Slug (URL path)</label>
+                        <input className="input" value={fSlug} onChange={(e) => setFSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} placeholder="invoices" disabled={!!editTarget} />
+                        <p className="text-xs text-text-muted mt-1">URL: /api/drop/{fSlug || "..."}</p>
+                      </div>
+                      <div>
+                        <label className="input-label">Endpoint Type</label>
+                        <select className="select" value={fType} onChange={(e) => setFType(e.target.value as EndpointType)}>
+                          <option value="api">HTTP API (upload/download)</option>
+                          <option value="sftp-server">SFTP Server (parties connect here)</option>
+                        </select>
+                      </div>
+                    </div>
                     {fType === "sftp-server" && (
-                      <p className="text-xs text-text-muted mt-1">External parties connect via SFTP to your server and drop files into <code>/{fSlug || "slug"}/</code>. They authenticate with their API key as password.</p>
+                      <p className="text-xs text-text-muted">External parties connect via SFTP to your server and drop files into <code>/{fSlug || "slug"}/</code>. They authenticate with their API key as password.</p>
                     )}
-                    <p className="text-xs text-text-muted mt-1">Moving files to/from a remote SFTP server is configured under <strong>Transfers</strong>.</p>
+                    <div>
+                      <label className="input-label">Description</label>
+                      <input className="input" value={fDesc} onChange={(e) => setFDesc(e.target.value)} placeholder="Invoice uploads from external parties" />
+                    </div>
+                    <p className="text-xs text-text-muted">Moving files to/from a remote SFTP server is configured under <strong>Transfers</strong>.</p>
                   </div>
 
-                  {/* File Naming */}
-                  <div>
-                    <label className="input-label">File Naming</label>
-                    <select className="select" value={fNamingPreset} onChange={(e) => setFNamingPreset(parseInt(e.target.value))}>
-                      {FILE_NAMING_PRESETS.map((p, i) => <option key={i} value={i}>{p.label}{p.mask ? ` — ${p.mask}` : ""}</option>)}
-                    </select>
-                    {fNamingPreset === 5 && (
-                      <>
-                        <input className="input mt-2" value={fNamingMask} onChange={(e) => setFNamingMask(e.target.value)} placeholder="{YYYY}{MM}{DD}_{ORIGINAL}{EXT}" />
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {FILE_NAMING_TOKENS.map((token) => (
-                            <button
-                              key={token}
-                              type="button"
-                              className="badge badge-muted"
-                              onClick={() => insertNamingToken(token)}
-                            >
-                              {token}
-                            </button>
+                  {/* Routing & filters */}
+                  <div className="p-3 rounded-lg border border-border space-y-3">
+                    <p className="text-xs font-semibold text-text-muted uppercase">Routing &amp; filters</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="input-label">Destination</label>
+                        <select className="select" value={fDestId} onChange={(e) => setFDestId(e.target.value)}>
+                          {destinations.map((d) => <option key={d.id} value={d.id}>{d.name} ({d.type})</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="input-label">Default subdirectory (optional)</label>
+                        <input className="input" value={fSubdir} onChange={(e) => setFSubdir(e.target.value)} placeholder="e.g. 2024/invoices" />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="input-label mb-0">Filters</label>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={addFilter}><Plus className="w-3.5 h-3.5" /> Add filter</button>
+                      </div>
+                      <p className="text-xs text-text-muted">Route incoming files into different folders. Filters are checked top-to-bottom; the first match wins. Files matching no filter use the default subdirectory above.</p>
+                      {fFilters.length === 0 ? (
+                        <p className="text-xs text-text-muted italic">No filters — all files go to the default subdirectory.</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {fFilters.map((flt, idx) => (
+                            <div key={flt.id} className="rounded-lg border border-border p-3 space-y-2 bg-surface-alt">
+                              <div className="flex items-center gap-2">
+                                <span className="badge badge-muted">{idx + 1}</span>
+                                <input className="input flex-1" placeholder="Filter name (e.g. Invoices)" value={flt.name} onChange={(e) => updateFilter(idx, { name: e.target.value })} />
+                                <button type="button" className="btn btn-ghost btn-sm" title="Move up" disabled={idx === 0} onClick={() => moveFilter(idx, -1)}><ArrowUp className="w-3.5 h-3.5" /></button>
+                                <button type="button" className="btn btn-ghost btn-sm" title="Move down" disabled={idx === fFilters.length - 1} onClick={() => moveFilter(idx, 1)}><ArrowDown className="w-3.5 h-3.5" /></button>
+                                <button type="button" className="btn btn-ghost btn-sm text-red-500" title="Remove" onClick={() => removeFilter(idx)}><Trash2 className="w-3.5 h-3.5" /></button>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="input-label">Wildcards (comma-separated)</label>
+                                  <input className="input" placeholder="invoice_*, *.pdf" value={flt.wildcards} onChange={(e) => updateFilter(idx, { wildcards: e.target.value })} />
+                                </div>
+                                <div>
+                                  <label className="input-label">Extensions (comma-separated)</label>
+                                  <input className="input" placeholder=".pdf, .xml" value={flt.extensions} onChange={(e) => updateFilter(idx, { extensions: e.target.value })} />
+                                </div>
+                              </div>
+                              <div>
+                                <label className="input-label">Target folder (under destination)</label>
+                                <input className="input" placeholder="e.g. invoices/2026" value={flt.targetSubdirectory} onChange={(e) => updateFilter(idx, { targetSubdirectory: e.target.value })} />
+                              </div>
+                            </div>
                           ))}
                         </div>
-                      </>
-                    )}
-                    <p className="text-xs text-text-muted mt-1">Tip: click a tag to insert it into your custom mask.</p>
-                  </div>
-
-                  {/* Toggles */}
-                  <div className="flex flex-col gap-3">
-                    <div className="flex items-center gap-2">
-                      <button className={`toggle ${fEnabled ? "active" : ""}`} onClick={() => setFEnabled(!fEnabled)}><span className="toggle-knob" /></button>
-                      <span className="text-sm text-text-secondary">Endpoint enabled</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button className={`toggle ${fAllowRetrieval ? "active" : ""}`} onClick={() => setFAllowRetrieval(!fAllowRetrieval)}><span className="toggle-knob" /></button>
-                      <span className="text-sm text-text-secondary">Allow file retrieval (GET)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button className={`toggle ${fRejectDuplicates ? "active" : ""}`} onClick={() => setFRejectDuplicates(!fRejectDuplicates)}><span className="toggle-knob" /></button>
-                      <span className="text-sm text-text-secondary">Reject duplicate uploads by SHA-256 checksum</span>
+                      )}
                     </div>
                   </div>
 
-                  {/* Email Notifications */}
+                  {/* File handling */}
                   <div className="p-3 rounded-lg border border-border space-y-3">
-                    <p className="text-xs font-semibold text-text-muted uppercase">Email Notifications</p>
-                    <div>
-                      <label className="input-label">Notify on</label>
-                      <select className="select" value={fNotifyOn} onChange={(e) => setFNotifyOn(e.target.value as "none" | "failures" | "all")}>
-                        <option value="none">Disabled</option>
-                        <option value="failures">Failures only</option>
-                        <option value="all">All uploads (success + failure)</option>
-                      </select>
-                    </div>
-                    {fNotifyOn !== "none" && (
+                    <p className="text-xs font-semibold text-text-muted uppercase">File handling</p>
+                    <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="input-label">Email Address</label>
-                        <input className="input" type="email" value={fNotifyEmail} onChange={(e) => setFNotifyEmail(e.target.value)} placeholder="alerts@example.com" />
+                        <label className="input-label">Allowed Extensions (comma-separated, empty = all)</label>
+                        <input className="input" value={fExtensions} onChange={(e) => setFExtensions(e.target.value)} placeholder=".pdf, .xml, .csv" />
                       </div>
-                    )}
+                      <div>
+                        <label className="input-label">Max File Size (MB, empty = global default)</label>
+                        <input className="input" type="number" value={fMaxSize} onChange={(e) => setFMaxSize(e.target.value)} placeholder="50" />
+                      </div>
+                      <div>
+                        <label className="input-label">Retention Override (days, empty = global setting)</label>
+                        <input className="input" type="number" min={0} value={fRetentionDays} onChange={(e) => setFRetentionDays(e.target.value)} placeholder="30" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="input-label">File Naming</label>
+                      <select className="select" value={fNamingPreset} onChange={(e) => setFNamingPreset(parseInt(e.target.value))}>
+                        {FILE_NAMING_PRESETS.map((p, i) => <option key={i} value={i}>{p.label}{p.mask ? ` — ${p.mask}` : ""}</option>)}
+                      </select>
+                      {fNamingPreset === 5 && (
+                        <>
+                          <input className="input mt-2" value={fNamingMask} onChange={(e) => setFNamingMask(e.target.value)} placeholder="{YYYY}{MM}{DD}_{ORIGINAL}{EXT}" />
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {FILE_NAMING_TOKENS.map((token) => (
+                              <button
+                                key={token}
+                                type="button"
+                                className="badge badge-muted"
+                                onClick={() => insertNamingToken(token)}
+                              >
+                                {token}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      <p className="text-xs text-text-muted mt-1">Tip: click a tag to insert it into your custom mask.</p>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center gap-2">
+                        <button className={`toggle ${fEnabled ? "active" : ""}`} onClick={() => setFEnabled(!fEnabled)}><span className="toggle-knob" /></button>
+                        <span className="text-sm text-text-secondary">Endpoint enabled</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button className={`toggle ${fAllowRetrieval ? "active" : ""}`} onClick={() => setFAllowRetrieval(!fAllowRetrieval)}><span className="toggle-knob" /></button>
+                        <span className="text-sm text-text-secondary">Allow file retrieval (GET)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button className={`toggle ${fRejectDuplicates ? "active" : ""}`} onClick={() => setFRejectDuplicates(!fRejectDuplicates)}><span className="toggle-knob" /></button>
+                        <span className="text-sm text-text-secondary">Reject duplicate uploads by SHA-256 checksum</span>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Webhook Notifications */}
-                  <div className="p-3 rounded-lg border border-border space-y-3">
-                    <p className="text-xs font-semibold text-text-muted uppercase">Webhook Notifications</p>
-                    <div>
-                      <label className="input-label">Notify on</label>
-                      <select className="select" value={fWebhookOn} onChange={(e) => setFWebhookOn(e.target.value as "none" | "failures" | "all")}>
-                        <option value="none">Disabled</option>
-                        <option value="failures">Failures only</option>
-                        <option value="all">All uploads (success + failure)</option>
-                      </select>
+                  {/* Notifications */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3 rounded-lg border border-border space-y-3">
+                      <p className="text-xs font-semibold text-text-muted uppercase">Email Notifications</p>
+                      <div>
+                        <label className="input-label">Notify on</label>
+                        <select className="select" value={fNotifyOn} onChange={(e) => setFNotifyOn(e.target.value as "none" | "failures" | "all")}>
+                          <option value="none">Disabled</option>
+                          <option value="failures">Failures only</option>
+                          <option value="all">All uploads (success + failure)</option>
+                        </select>
+                      </div>
+                      {fNotifyOn !== "none" && (
+                        <div>
+                          <label className="input-label">Email Address</label>
+                          <input className="input" type="email" value={fNotifyEmail} onChange={(e) => setFNotifyEmail(e.target.value)} placeholder="alerts@example.com" />
+                        </div>
+                      )}
                     </div>
-                    {fWebhookOn !== "none" && (
-                      <>
-                        <div>
-                          <label className="input-label">Webhook URL</label>
-                          <input className="input" value={fWebhookUrl} onChange={(e) => setFWebhookUrl(e.target.value)} placeholder="https://example.com/webhooks/filedrop" />
-                        </div>
-                        <div>
-                          <label className="input-label">Webhook Secret (optional)</label>
-                          <input className="input" value={fWebhookSecret} onChange={(e) => setFWebhookSecret(e.target.value)} placeholder="shared secret for signature verification" />
-                        </div>
-                      </>
-                    )}
+                    <div className="p-3 rounded-lg border border-border space-y-3">
+                      <p className="text-xs font-semibold text-text-muted uppercase">Webhook Notifications</p>
+                      <div>
+                        <label className="input-label">Notify on</label>
+                        <select className="select" value={fWebhookOn} onChange={(e) => setFWebhookOn(e.target.value as "none" | "failures" | "all")}>
+                          <option value="none">Disabled</option>
+                          <option value="failures">Failures only</option>
+                          <option value="all">All uploads (success + failure)</option>
+                        </select>
+                      </div>
+                      {fWebhookOn !== "none" && (
+                        <>
+                          <div>
+                            <label className="input-label">Webhook URL</label>
+                            <input className="input" value={fWebhookUrl} onChange={(e) => setFWebhookUrl(e.target.value)} placeholder="https://example.com/webhooks/filedrop" />
+                          </div>
+                          <div>
+                            <label className="input-label">Webhook Secret (optional)</label>
+                            <input className="input" value={fWebhookSecret} onChange={(e) => setFWebhookSecret(e.target.value)} placeholder="shared secret for signature verification" />
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
                   {formError && <p className="text-sm text-red-500">{formError}</p>}
                 </div>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { readJsonConfig, writeJsonConfig } from "@/lib/config";
+import { normalizeFilters } from "@/lib/endpoint-filters";
 import type { DropEndpoint } from "@/lib/types";
 
 const ENDPOINTS_FILE = "endpoints.json";
@@ -54,6 +55,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   if (body.description !== undefined) ep.description = body.description;
   if (body.destinationId !== undefined) ep.destinationId = body.destinationId;
   if (body.subdirectory !== undefined) ep.subdirectory = body.subdirectory;
+  if (body.filters !== undefined) ep.filters = normalizeFilters(body.filters);
   if (body.allowedExtensions !== undefined) ep.allowedExtensions = body.allowedExtensions;
   if (body.maxFileSize !== undefined) ep.maxFileSize = body.maxFileSize;
   if (body.enabled !== undefined) ep.enabled = body.enabled;

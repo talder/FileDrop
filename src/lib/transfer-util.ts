@@ -21,14 +21,14 @@ export interface SelectableFile {
 export const MIN_SCHEDULE_SECONDS = 5;
 
 /** Convert a simple glob (supporting * and ?) into an anchored RegExp. */
-export function globToRegExp(pattern: string): RegExp {
+export function globToRegExp(pattern: string, flags = ""): RegExp {
   let re = "";
   for (const ch of pattern) {
     if (ch === "*") re += "[^/]*";
     else if (ch === "?") re += "[^/]";
     else re += ch.replace(/[.+^${}()|[\]\\]/g, "\\$&");
   }
-  return new RegExp(`^${re}$`);
+  return new RegExp(`^${re}$`, flags);
 }
 
 function normalizeExt(ext: string): string {
