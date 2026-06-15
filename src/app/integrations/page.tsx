@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Play, History, X, Zap } from "lucide-react";
+import { Plus, Pencil, Trash2, Play, History, X, Zap, Copy } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -169,8 +169,7 @@ export default function IntegrationsPage() {
     setFArchiveNamingMask((prev) => `${prev}${token}`);
   };
 
-  const openEdit = (i: Integration) => {
-    setEditTarget(i);
+  const fillFormFromIntegration = (i: Integration) => {
     setFName(i.name); setFDesc(i.description || ""); setFEnabled(i.enabled);
     setFSourceDestId(i.sourceDestinationId); setFSourceSubdir(i.sourceSubdirectory || "");
     setFSelMode(i.sourceSelection?.mode || "all");
@@ -215,6 +214,22 @@ export default function IntegrationsPage() {
     setFRetryMaxAttempts(String(i.retryPolicy?.maxAttempts || 3));
     setFRetryBackoffSeconds(String(i.retryPolicy?.backoffSeconds || 5));
     setFRetryDeadLetter(i.retryPolicy?.deadLetterSubdirectory || "_dead-letter");
+  };
+
+  const openEdit = (i: Integration) => {
+    setEditTarget(i);
+    fillFormFromIntegration(i);
+    setFormError("");
+    setShowModal(true);
+  };
+
+  // Duplicate: prefill the create modal from an existing integration (no id),
+  // so saving POSTs a brand-new integration. The name is pre-suffixed to avoid
+  // the server's duplicate-name rejection; the user can adjust before saving.
+  const openDuplicate = (i: Integration) => {
+    setEditTarget(null);
+    fillFormFromIntegration(i);
+    setFName(`Copy of ${i.name}`);
     setFormError("");
     setShowModal(true);
   };
@@ -389,6 +404,7 @@ export default function IntegrationsPage() {
                         <button className="btn btn-ghost btn-sm" onClick={() => handleRun(i)} disabled={runningId === i.id} title="Run now"><Play className="w-3.5 h-3.5" /></button>
                         <button className="btn btn-ghost btn-sm" onClick={() => openRuns(i)} title="Run history"><History className="w-3.5 h-3.5" /></button>
                         <button className="btn btn-ghost btn-sm" onClick={() => openEdit(i)} title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => openDuplicate(i)} title="Duplicate"><Copy className="w-3.5 h-3.5" /></button>
                         <button className="btn btn-ghost btn-sm text-red-500" onClick={() => setDeleteTarget(i)} title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
                     </td>
