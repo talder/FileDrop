@@ -145,21 +145,37 @@ export function getDb(): BetterSqlite3.Database {
     CREATE INDEX IF NOT EXISTS idx_integration_runs_iid ON integration_runs(integration_id);
   `);
 
-  // Migration: add new columns to file_log if missing
-  try {
-    _db.exec(`ALTER TABLE file_log ADD COLUMN source_hostname TEXT NOT NULL DEFAULT ''`);
-  } catch { /* column already exists */ }
-  try {
-    _db.exec(`ALTER TABLE file_log ADD COLUMN destination_name TEXT NOT NULL DEFAULT ''`);
-  } catch { /* column already exists */ }
-  try {
-    _db.exec(`ALTER TABLE file_log ADD COLUMN checksum_sha256 TEXT NOT NULL DEFAULT ''`);
-  } catch { /* column already exists */ }
-  try {
-    _db.exec(`CREATE INDEX IF NOT EXISTS idx_file_log_endpoint_checksum ON file_log(endpoint_slug, checksum_sha256)`);
-  } catch { /* ignore */ }
+  // Migration: ensure newer file_log columns exist. We inspect the live schema
+  // first and only ALTER genuinely-missing columns, so real failures surface
+  // instead of being swallowed. (A blanket try/catch here previously hid a
+  // failed ALTER, leaving production without checksum_sha256 until restart.)
+  ensureColumns(_db, "file_log", [
+    ["source_hostname", "TEXT NOT NULL DEFAULT ''"],
+    ["destination_name", "TEXT NOT NULL DEFAULT ''"],
+    ["checksum_sha256", "TEXT NOT NULL DEFAULT ''"],
+  ]);
+  _db.exec(`CREATE INDEX IF NOT EXISTS idx_file_log_endpoint_checksum ON file_log(endpoint_slug, checksum_sha256)`);
 
   return _db;
+}
+
+/**
+ * Idempotently add any of the given columns that are not already present on the
+ * table. Existing columns are skipped (so no spurious "duplicate column"
+ * errors), while a genuine ALTER failure is allowed to throw so it is visible.
+ */
+function ensureColumns(
+  db: BetterSqlite3.Database,
+  table: string,
+  columns: [name: string, ddl: string][],
+) {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  const existing = new Set(rows.map((r) => r.name));
+  for (const [name, ddl] of columns) {
+    if (!existing.has(name)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${ddl}`);
+    }
+  }
 }
 
 // ── Directory helpers ─────────────────────────────────────────────────────────
