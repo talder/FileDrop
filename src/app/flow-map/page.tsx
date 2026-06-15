@@ -241,7 +241,11 @@ export default function FlowMapPage() {
 
   const rfEdges = useMemo<Edge[]>(() => {
     const { visible } = computeVisibility(graph, selectedTagId);
-    const marker = { type: MarkerType.ArrowClosed, width: 18, height: 18 };
+    // Inline the stroke (and matching marker color) so html-to-image captures
+    // the edge lines in the PNG export. Relying on the .react-flow__edge-path
+    // CSS class makes the lines disappear in the exported image.
+    const EDGE_COLOR = "#b1b1b7";
+    const marker = { type: MarkerType.ArrowClosed, width: 18, height: 18, color: EDGE_COLOR };
     return buildDisplayEdges(graph.edges).map((e) => ({
       id: e.id,
       source: e.source,
@@ -250,6 +254,7 @@ export default function FlowMapPage() {
       type: "smoothstep",
       markerEnd: marker,
       markerStart: e.bidirectional ? marker : undefined,
+      style: { stroke: EDGE_COLOR, strokeWidth: 2 },
       hidden: !!visible && !(visible.has(e.source) && visible.has(e.target)),
     }));
   }, [graph, selectedTagId]);
