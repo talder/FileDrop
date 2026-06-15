@@ -326,7 +326,7 @@ export default function TransfersPage() {
                 {transfers.map((t) => (
                   <tr key={t.id}>
                     <td className="font-medium text-text-primary">{t.name}</td>
-                    <td><span className="badge badge-info">{t.direction === "pull" ? "Pull ↓" : "Push ↑"}</span></td>
+                    <td><span className={`badge ${t.direction === "pull" ? "badge-info" : "badge-orange"}`}>{t.direction === "pull" ? "Pull ↓" : "Push ↑"}</span></td>
                     <td className="text-xs">{serverName(t.connectionId)}<span className="text-text-muted"> :{t.remotePath}</span></td>
                     <td className="text-xs">{destName(t.destinationId)}{t.subdirectory ? `/${t.subdirectory}` : ""}</td>
                     <td className="text-xs">{describeSchedule(t.schedule)}</td>
