@@ -222,6 +222,20 @@ export interface TransferSchedule {
   atTime?: string;
 }
 
+/**
+ * Folder-watch config. When enabled, the local source folder is watched and a
+ * run is triggered (after a debounce window) whenever files appear/change.
+ * Only meaningful for local sources: push transfers and integrations.
+ */
+export interface FolderWatch {
+  /** Whether the source folder is watched */
+  enabled: boolean;
+  /** Watch subdirectories recursively ("include subfolders") */
+  recursive?: boolean;
+  /** Quiet period in ms after the last change before triggering a run */
+  debounceMs?: number;
+}
+
 /** What to do when the target already has a file with the same name. */
 export type TransferConflictPolicy = "overwrite" | "rename" | "skip";
 
@@ -252,6 +266,8 @@ export interface Transfer {
   deleteSourceAfterTransfer: boolean;
   /** Automatic run schedule */
   schedule: TransferSchedule;
+  /** Folder watcher: trigger a run when files appear in the local source (push only) */
+  watch?: FolderWatch;
   /** Email notification config */
   notifications?: EmailNotificationConfig;
   /** Webhook notification config */
@@ -267,7 +283,7 @@ export interface Transfer {
 }
 
 export type TransferRunStatus = "success" | "partial" | "failed" | "running";
-export type TransferTrigger = "manual" | "schedule";
+export type TransferTrigger = "manual" | "schedule" | "watch";
 
 export interface TransferRun {
   id: number;
@@ -435,6 +451,8 @@ export interface Integration {
   responseSubdirectory?: string;
   /** Naming applied to saved response files */
   responseFileNaming: FileNaming;
+  /** Naming applied to the source file's name as forwarded to the SOAP request (exposed via the {FILENAME} envelope token + Content-Disposition). Defaults to keep-original when absent. */
+  outboundFileNaming?: FileNaming;
   /** FTP server to push the response to (optional) */
   ftpConnectionId?: string;
   ftpRemotePath?: string;
@@ -446,6 +464,8 @@ export interface Integration {
   postSourceAsBytes?: boolean;
   /** Automatic run schedule */
   schedule: TransferSchedule;
+  /** Folder watcher: trigger a run when files appear in the local source */
+  watch?: FolderWatch;
   /** Email notification config */
   notifications?: EmailNotificationConfig;
   /** Webhook notification config */

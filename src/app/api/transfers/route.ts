@@ -4,8 +4,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { getTransfers, writeTransfers } from "@/lib/transfers";
 import { getSftpConnectionById } from "@/lib/sftp-connections";
 import { getDestinationById } from "@/lib/destinations";
-import { rescheduleTransfer } from "@/lib/scheduler";
-import { validateSchedule, normalizeSchedule } from "@/lib/transfer-util";
+import { rescheduleTransfer, rewatchTransfer } from "@/lib/scheduler";
+import { validateSchedule, normalizeSchedule, normalizeWatch } from "@/lib/transfer-util";
 import { normalizeRetryPolicy } from "@/lib/retry-policy";
 import { auditLog, getRequestIp } from "@/lib/audit";
 import type {
@@ -90,6 +90,7 @@ export async function POST(request: Request) {
       conflictPolicy: (body.conflictPolicy as TransferConflictPolicy) || "skip",
       deleteSourceAfterTransfer: !!body.deleteSourceAfterTransfer,
       schedule,
+      watch: normalizeWatch(body.watch),
       notifications: body.notifications || undefined,
       webhook: normalizeWebhook(body.webhook),
       retryPolicy: body.retryPolicy !== undefined ? normalizeRetryPolicy(body.retryPolicy) : undefined,
@@ -99,6 +100,7 @@ export async function POST(request: Request) {
     transfers.push(transfer);
     await writeTransfers(transfers);
     await rescheduleTransfer(transfer.id);
+    await rewatchTransfer(transfer.id);
 
     auditLog({
       actor: user.username,

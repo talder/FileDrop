@@ -12,6 +12,7 @@ import { ftpUploadFile } from "./ftp";
 import { getDestinationById, isPathAccessible, decryptPassword } from "./destinations";
 import { selectFiles, applyConflictPolicy } from "./transfer-util";
 import { applyFilenameMask } from "./file-naming";
+import { applyEnvelopeTemplate } from "./integration-envelope";
 import { logFileUpload } from "./file-log";
 import { startIntegrationRun, finishIntegrationRun } from "./integration-runs";
 import { setIntegrationLastRun, normalizeArchivePolicy } from "./integrations";
@@ -171,6 +172,7 @@ function soapPost(opts: {
   body: string | Buffer;
   authBasic: string;
   soapAction?: string;
+  contentDisposition?: string;
   ignoreTlsErrors: boolean;
   signal: AbortSignal;
 }): Promise<SoapResult> {
@@ -192,6 +194,9 @@ function soapPost(opts: {
       "Content-Length": String(payload.byteLength),
     };
     if (opts.soapAction) headers.SOAPAction = `"${opts.soapAction}"`;
+    if (opts.contentDisposition) {
+      headers["Content-Disposition"] = `attachment; filename="${opts.contentDisposition.replace(/"/g, "")}"`;
+    }
 
     const requestOptions: https.RequestOptions = {
       method: "POST",
@@ -312,6 +317,7 @@ export async function runIntegration(
 
   const recursive = !!integration.sourceSelection?.recursive;
   const naming = integration.responseFileNaming || { mode: "original" as const, mask: "" };
+  const outboundNaming = integration.outboundFileNaming || { mode: "original" as const, mask: "" };
   const retryPolicy = normalizeRetryPolicy(integration.retryPolicy);
   const archivePolicy = normalizeArchivePolicy(integration.archivePolicy);
   // Byte-accurate posting only applies to raw envelope mode (template needs string substitution).
@@ -342,6 +348,8 @@ export async function runIntegration(
   for (const file of selected) {
     const sourcePath = path.join(sourceDir, file.relPath);
     const ts = new Date().toISOString();
+    // Outbound name forwarded with the source file (timestamp/custom mask aware).
+    const outboundName = applyFilenameMask(outboundNaming, file.name, new Date(ts));
 
     let payload: string | Buffer;
     try {
@@ -360,16 +368,16 @@ export async function runIntegration(
       const msg = movedToDeadLetter ? `${msgBase} (moved to dead-letter: ${movedToDeadLetter})` : msgBase;
       summary.filesFailed += 1;
       summary.errors.push(`${file.relPath}: ${msg}`);
-      logFileUpload({ timestamp: ts, filename: file.name, originalFilename: file.name, fileSize: file.size, status: "failed", errorMessage: msg, ...logBase });
+      logFileUpload({ timestamp: ts, filename: outboundName, originalFilename: file.name, fileSize: file.size, status: "failed", errorMessage: msg, ...logBase });
       continue;
     }
 
-    // Build the SOAP request body.
+    // Build the SOAP request body, exposing the outbound filename to templates.
     const body: string | Buffer = soap.envelopeMode === "template"
-      ? (soap.envelopeTemplate || "{PAYLOAD}").replace(
-          /\{PAYLOAD\}/g,
-          typeof payload === "string" ? payload : payload.toString("utf8"),
-        )
+      ? applyEnvelopeTemplate(soap.envelopeTemplate || "{PAYLOAD}", {
+          payload: typeof payload === "string" ? payload : payload.toString("utf8"),
+          filename: outboundName,
+        })
       : payload;
 
     // POST to the SOAP endpoint.
@@ -381,6 +389,7 @@ export async function runIntegration(
           body,
           authBasic: basicAuth,
           soapAction: soap.soapAction || undefined,
+          contentDisposition: outboundName,
           ignoreTlsErrors: !!soap.ignoreTlsErrors,
           signal: AbortSignal.timeout(60000),
         });
@@ -402,7 +411,7 @@ export async function runIntegration(
       const msg = movedToDeadLetter ? `${msgBase} (moved to dead-letter: ${movedToDeadLetter})` : msgBase;
       summary.filesFailed += 1;
       summary.errors.push(`${file.relPath}: ${msg}`);
-      logFileUpload({ timestamp: ts, filename: file.name, originalFilename: file.name, fileSize: file.size, status: "failed", errorMessage: msg, ...logBase });
+      logFileUpload({ timestamp: ts, filename: outboundName, originalFilename: file.name, fileSize: file.size, status: "failed", errorMessage: msg, ...logBase });
       continue;
     }
 
@@ -474,7 +483,7 @@ export async function runIntegration(
       summary.errors.push(`${file.relPath}: ${failureMessage}`);
       logFileUpload({
         timestamp: ts,
-        filename: savedName || file.name,
+        filename: savedName || outboundName,
         originalFilename: file.name,
         fileSize: file.size,
         status: "failed",
@@ -510,7 +519,7 @@ export async function runIntegration(
     if (warnings.length > 0) summary.errors.push(`${file.relPath}: ${warnings.join("; ")}`);
     logFileUpload({
       timestamp: ts,
-      filename: savedName || file.name,
+      filename: savedName || outboundName,
       originalFilename: file.name,
       fileSize: Buffer.byteLength(responseBody),
       status: "success",

@@ -4,8 +4,8 @@ import { getIntegrations, writeIntegrations, normalizeArchivePolicy } from "@/li
 import { getSoapConnectionById } from "@/lib/soap-connections";
 import { getFtpConnectionById } from "@/lib/ftp-connections";
 import { getDestinationById } from "@/lib/destinations";
-import { rescheduleIntegration, unscheduleIntegration } from "@/lib/scheduler";
-import { validateSchedule, normalizeSchedule } from "@/lib/transfer-util";
+import { rescheduleIntegration, unscheduleIntegration, rewatchIntegration, unwatchIntegration } from "@/lib/scheduler";
+import { validateSchedule, normalizeSchedule, normalizeWatch } from "@/lib/transfer-util";
 import { normalizeRetryPolicy } from "@/lib/retry-policy";
 import { auditLog, getRequestIp } from "@/lib/audit";
 
@@ -84,6 +84,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   if (body.sourceSelection !== undefined) integration.sourceSelection = body.sourceSelection;
   if (body.responseSubdirectory !== undefined) integration.responseSubdirectory = body.responseSubdirectory || undefined;
   if (body.responseFileNaming !== undefined) integration.responseFileNaming = body.responseFileNaming;
+  if (body.outboundFileNaming !== undefined) integration.outboundFileNaming = body.outboundFileNaming;
   if (body.ftpRemotePath !== undefined) integration.ftpRemotePath = body.ftpRemotePath || undefined;
   if (body.deleteSourceAfterRun !== undefined) integration.deleteSourceAfterRun = !!body.deleteSourceAfterRun;
   if (body.archivePolicy !== undefined) {
@@ -105,11 +106,13 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     if (!check.valid) return NextResponse.json({ error: check.error }, { status: 400 });
     integration.schedule = schedule;
   }
+  if (body.watch !== undefined) integration.watch = normalizeWatch(body.watch);
   integration.updatedAt = new Date().toISOString();
 
   integrations[idx] = integration;
   await writeIntegrations(integrations);
   await rescheduleIntegration(integration.id);
+  await rewatchIntegration(integration.id);
 
   auditLog({
     actor: user.username,
@@ -133,6 +136,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (filtered.length === integrations.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   unscheduleIntegration(id);
+  unwatchIntegration(id);
   await writeIntegrations(filtered);
 
   auditLog({

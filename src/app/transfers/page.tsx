@@ -88,6 +88,9 @@ export default function TransfersPage() {
   const [fSchedUnit, setFSchedUnit] = useState<TransferScheduleUnit>("minutes");
   const [fSchedAtTime, setFSchedAtTime] = useState("");
   const [fSchedMode, setFSchedMode] = useState<"interval" | "daily">("interval");
+  const [fWatchEnabled, setFWatchEnabled] = useState(false);
+  const [fWatchRecursive, setFWatchRecursive] = useState(false);
+  const [fWatchDebounce, setFWatchDebounce] = useState("2");
   const [fNotifyOn, setFNotifyOn] = useState<"none" | "failures" | "all">("none");
   const [fNotifyEmail, setFNotifyEmail] = useState("");
   const [fWebhookOn, setFWebhookOn] = useState<"none" | "failures" | "all">("none");
@@ -132,6 +135,7 @@ export default function TransfersPage() {
     setFNamingPreset(0); setFNamingMask("");
     setFConflict("skip"); setFDeleteSource(false);
     setFSchedEnabled(false); setFSchedEvery("5"); setFSchedUnit("minutes"); setFSchedAtTime(""); setFSchedMode("interval");
+    setFWatchEnabled(false); setFWatchRecursive(false); setFWatchDebounce("2");
     setFNotifyOn("none"); setFNotifyEmail("");
     setFWebhookOn("none"); setFWebhookUrl(""); setFWebhookSecret("");
     setFRetryEnabled(false); setFRetryMaxAttempts("3"); setFRetryBackoffSeconds("5"); setFRetryDeadLetter("_dead-letter");
@@ -164,6 +168,9 @@ export default function TransfersPage() {
     setFSchedEnabled(!!t.schedule?.enabled); setFSchedEvery(String(t.schedule?.every || 5));
     setFSchedUnit(t.schedule?.unit || "minutes"); setFSchedAtTime(t.schedule?.atTime || "");
     setFSchedMode(t.schedule?.unit === "days" && t.schedule?.atTime ? "daily" : "interval");
+    setFWatchEnabled(!!t.watch?.enabled);
+    setFWatchRecursive(!!t.watch?.recursive);
+    setFWatchDebounce(String((t.watch?.debounceMs ?? 2000) / 1000));
     setFNotifyOn(t.notifications?.on || "none"); setFNotifyEmail(t.notifications?.email || "");
     setFWebhookOn(t.webhook?.on || "none");
     setFWebhookUrl(t.webhook?.url || "");
@@ -226,6 +233,11 @@ export default function TransfersPage() {
             unit: fSchedUnit,
             atTime: fSchedUnit === "days" && fSchedAtTime ? fSchedAtTime : undefined,
           },
+      watch: {
+        enabled: fDirection === "push" ? fWatchEnabled : false,
+        recursive: fWatchRecursive,
+        debounceMs: Math.round((parseFloat(fWatchDebounce) || 2) * 1000),
+      },
       notifications: fNotifyOn !== "none" && fNotifyEmail ? { on: fNotifyOn, email: fNotifyEmail } : { on: "none", email: "" },
       webhook: fWebhookOn !== "none" && fWebhookUrl.trim()
         ? { on: fWebhookOn, url: fWebhookUrl.trim(), secret: fWebhookSecret.trim() || undefined }
@@ -329,7 +341,10 @@ export default function TransfersPage() {
                     <td><span className={`badge ${t.direction === "pull" ? "badge-info" : "badge-orange"}`}>{t.direction === "pull" ? "Pull ↓" : "Push ↑"}</span></td>
                     <td className="text-xs">{serverName(t.connectionId)}<span className="text-text-muted"> :{t.remotePath}</span></td>
                     <td className="text-xs">{destName(t.destinationId)}{t.subdirectory ? `/${t.subdirectory}` : ""}</td>
-                    <td className="text-xs">{describeSchedule(t.schedule)}</td>
+                    <td className="text-xs">
+                      {describeSchedule(t.schedule)}
+                      {t.watch?.enabled && <span className="badge badge-info ml-1">watch</span>}
+                    </td>
                     <td className="text-xs">{t.lastRunAt ? new Date(t.lastRunAt).toLocaleString() : "—"}</td>
                     <td>
                       <button onClick={() => toggleEnabled(t)} className={`badge ${t.enabled ? "badge-success" : "badge-danger"}`} style={{ cursor: "pointer" }}>
@@ -566,6 +581,33 @@ export default function TransfersPage() {
                           </>
                         )}
                       </div>
+                    )}
+                  </div>
+
+                  {/* Folder watcher */}
+                  <div className="p-3 rounded-lg border border-border space-y-3">
+                    {fDirection === "push" ? (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <button className={`toggle ${fWatchEnabled ? "active" : ""}`} onClick={() => setFWatchEnabled(!fWatchEnabled)}><span className="toggle-knob" /></button>
+                          <span className="text-sm font-medium text-text-secondary">Watch source folder and run on new files</span>
+                        </div>
+                        {fWatchEnabled && (
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <button className={`toggle ${fWatchRecursive ? "active" : ""}`} onClick={() => setFWatchRecursive(!fWatchRecursive)}><span className="toggle-knob" /></button>
+                              <span className="text-sm text-text-secondary">Include subfolders</span>
+                            </div>
+                            <div>
+                              <label className="input-label">Debounce (seconds)</label>
+                              <input className="input" type="number" min={0.25} step={0.25} value={fWatchDebounce} onChange={(e) => setFWatchDebounce(e.target.value)} />
+                              <p className="text-xs text-text-muted mt-1">Wait this long after the last change before running, so large or batched writes finish first.</p>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-xs text-text-muted">Folder watching is only available for push transfers. Pull transfers read from a remote SFTP server, which cannot be watched locally.</p>
                     )}
                   </div>
 

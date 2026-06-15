@@ -1,5 +1,6 @@
 import { extname } from "path";
 import type {
+  FolderWatch,
   SftpConnection,
   Transfer,
   TransferConflictPolicy,
@@ -184,6 +185,49 @@ export function describeSchedule(schedule: TransferSchedule): string {
   }
   const unitLabel = s.every === 1 ? s.unit.replace(/s$/, "") : s.unit;
   return `Every ${s.every} ${unitLabel}`;
+}
+
+// ── Folder watching ──────────────────────────────────────────────────────────
+
+/** Default quiet period before a watcher triggers a run. */
+export const DEFAULT_WATCH_DEBOUNCE_MS = 2000;
+/** Smallest debounce window we allow (guards against event storms). */
+export const MIN_WATCH_DEBOUNCE_MS = 250;
+/** Largest debounce window we allow. */
+export const MAX_WATCH_DEBOUNCE_MS = 60_000;
+
+/** Coerce arbitrary input into a safe FolderWatch (disabled by default). */
+export function normalizeWatch(input: unknown): FolderWatch {
+  const cfg = (input && typeof input === "object" ? input : {}) as {
+    enabled?: unknown;
+    recursive?: unknown;
+    debounceMs?: unknown;
+  };
+  const raw = Number(cfg.debounceMs);
+  const debounceMs = Number.isFinite(raw)
+    ? Math.min(MAX_WATCH_DEBOUNCE_MS, Math.max(MIN_WATCH_DEBOUNCE_MS, Math.floor(raw)))
+    : DEFAULT_WATCH_DEBOUNCE_MS;
+  return {
+    enabled: !!cfg.enabled,
+    recursive: !!cfg.recursive,
+    debounceMs,
+  };
+}
+
+/**
+ * Whether a watcher event for `filename` (relative to the watched root) targets
+ * an internal subdirectory the runner itself writes to (archive / dead-letter).
+ * Used to avoid self-trigger loops under recursive watching. A null/empty
+ * filename (some platforms) is treated as non-internal so the run still fires.
+ */
+export function isInternalChange(
+  filename: string | null | undefined,
+  internalDirs: string[],
+): boolean {
+  if (!filename) return false;
+  const first = filename.split(/[\\/]/).find(Boolean);
+  if (!first) return false;
+  return internalDirs.some((d) => d && d.trim() && d.trim() === first);
 }
 
 /** Human-readable selection summary for UI. */

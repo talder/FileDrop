@@ -252,6 +252,7 @@ export default function SoapConnectionsPage() {
                     <div>
                       <label className="input-label">Envelope template</label>
                       <textarea className="input" rows={4} value={fTemplate} onChange={(e) => setFTemplate(e.target.value)} placeholder={"<soap:Envelope>...{PAYLOAD}...</soap:Envelope>"} />
+                      <p className="text-xs text-text-muted mt-1">Tokens: {"{PAYLOAD}"} (file content) and {"{FILENAME}"} (outbound file name set on the integration).</p>
                     </div>
                   )}
                   <label className="flex items-center gap-2 text-sm">

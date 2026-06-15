@@ -5,8 +5,8 @@ import { getIntegrations, writeIntegrations, normalizeArchivePolicy } from "@/li
 import { getSoapConnectionById } from "@/lib/soap-connections";
 import { getFtpConnectionById } from "@/lib/ftp-connections";
 import { getDestinationById } from "@/lib/destinations";
-import { rescheduleIntegration } from "@/lib/scheduler";
-import { validateSchedule, normalizeSchedule } from "@/lib/transfer-util";
+import { rescheduleIntegration, rewatchIntegration } from "@/lib/scheduler";
+import { validateSchedule, normalizeSchedule, normalizeWatch } from "@/lib/transfer-util";
 import { normalizeRetryPolicy } from "@/lib/retry-policy";
 import { auditLog, getRequestIp } from "@/lib/audit";
 import type { FileNaming, Integration, TransferSchedule, TransferSelection } from "@/lib/types";
@@ -95,12 +95,14 @@ export async function POST(request: Request) {
       responseDestinationId: body.responseDestinationId || undefined,
       responseSubdirectory: body.responseSubdirectory || undefined,
       responseFileNaming: (body.responseFileNaming as FileNaming) || DEFAULT_NAMING,
+      outboundFileNaming: (body.outboundFileNaming as FileNaming) || DEFAULT_NAMING,
       ftpConnectionId: body.ftpConnectionId || undefined,
       ftpRemotePath: body.ftpRemotePath || undefined,
       deleteSourceAfterRun: !!body.deleteSourceAfterRun,
       archivePolicy: normalizeArchivePolicy(body.archivePolicy),
       postSourceAsBytes: !!body.postSourceAsBytes,
       schedule,
+      watch: normalizeWatch(body.watch),
       notifications: body.notifications || undefined,
       webhook: normalizeWebhook(body.webhook),
       retryPolicy: body.retryPolicy !== undefined ? normalizeRetryPolicy(body.retryPolicy) : undefined,
@@ -110,6 +112,7 @@ export async function POST(request: Request) {
     integrations.push(integration);
     await writeIntegrations(integrations);
     await rescheduleIntegration(integration.id);
+    await rewatchIntegration(integration.id);
 
     auditLog({
       actor: user.username,

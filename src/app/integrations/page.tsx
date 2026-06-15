@@ -84,6 +84,9 @@ export default function IntegrationsPage() {
   const [fResponseSubdir, setFResponseSubdir] = useState("");
   const [fNamingPreset, setFNamingPreset] = useState(0);
   const [fNamingMask, setFNamingMask] = useState("");
+  // outbound (source) file naming sent to the SOAP request
+  const [fOutboundNamingPreset, setFOutboundNamingPreset] = useState(0);
+  const [fOutboundNamingMask, setFOutboundNamingMask] = useState("");
   // ftp delivery
   const [fFtpEnabled, setFFtpEnabled] = useState(false);
   const [fFtpId, setFFtpId] = useState("");
@@ -103,6 +106,10 @@ export default function IntegrationsPage() {
   const [fSchedUnit, setFSchedUnit] = useState<TransferScheduleUnit>("minutes");
   const [fSchedAtTime, setFSchedAtTime] = useState("");
   const [fSchedMode, setFSchedMode] = useState<"interval" | "daily">("interval");
+  // folder watcher
+  const [fWatchEnabled, setFWatchEnabled] = useState(false);
+  const [fWatchRecursive, setFWatchRecursive] = useState(false);
+  const [fWatchDebounce, setFWatchDebounce] = useState("2");
   // notifications
   const [fNotifyOn, setFNotifyOn] = useState<"none" | "failures" | "all">("none");
   const [fNotifyEmail, setFNotifyEmail] = useState("");
@@ -148,11 +155,13 @@ export default function IntegrationsPage() {
     setFSoapId(soaps[0]?.id || "");
     setFSaveResponse(false); setFResponseDestId(destinations[0]?.id || ""); setFResponseSubdir("");
     setFNamingPreset(0); setFNamingMask("");
+    setFOutboundNamingPreset(0); setFOutboundNamingMask("");
     setFFtpEnabled(false); setFFtpId(ftps[0]?.id || ""); setFFtpRemotePath("");
     setFDeleteSource(false);
     setFArchiveEnabled(false); setFArchiveSubdir("success"); setFArchiveNamingPreset(1); setFArchiveNamingMask("");
     setFPostBytes(false);
     setFSchedEnabled(false); setFSchedEvery("5"); setFSchedUnit("minutes"); setFSchedAtTime(""); setFSchedMode("interval");
+    setFWatchEnabled(false); setFWatchRecursive(false); setFWatchDebounce("2");
     setFNotifyOn("none"); setFNotifyEmail("");
     setFWebhookOn("none"); setFWebhookUrl(""); setFWebhookSecret("");
     setFRetryEnabled(false); setFRetryMaxAttempts("3"); setFRetryBackoffSeconds("5"); setFRetryDeadLetter("_dead-letter");
@@ -168,6 +177,11 @@ export default function IntegrationsPage() {
   const insertArchiveToken = (token: string) => {
     setFArchiveNamingPreset(CUSTOM_NAMING_IDX);
     setFArchiveNamingMask((prev) => `${prev}${token}`);
+  };
+
+  const insertOutboundToken = (token: string) => {
+    setFOutboundNamingPreset(CUSTOM_NAMING_IDX);
+    setFOutboundNamingMask((prev) => `${prev}${token}`);
   };
 
   const fillFormFromIntegration = (i: Integration) => {
@@ -189,6 +203,13 @@ export default function IntegrationsPage() {
       if (idx >= 0) { setFNamingPreset(idx); setFNamingMask(""); }
       else { setFNamingPreset(CUSTOM_NAMING_IDX); setFNamingMask(fn.mask); }
     }
+    const ofn = i.outboundFileNaming || { mode: "original", mask: "" };
+    if (ofn.mode === "original") { setFOutboundNamingPreset(0); setFOutboundNamingMask(""); }
+    else {
+      const oIdx = NAMING_PRESETS.findIndex((p) => p.mode === "mask" && p.mask === ofn.mask);
+      if (oIdx >= 0) { setFOutboundNamingPreset(oIdx); setFOutboundNamingMask(""); }
+      else { setFOutboundNamingPreset(CUSTOM_NAMING_IDX); setFOutboundNamingMask(ofn.mask); }
+    }
     setFFtpEnabled(!!i.ftpConnectionId);
     setFFtpId(i.ftpConnectionId || ftps[0]?.id || "");
     setFFtpRemotePath(i.ftpRemotePath || "");
@@ -207,6 +228,9 @@ export default function IntegrationsPage() {
     setFSchedEnabled(!!i.schedule?.enabled); setFSchedEvery(String(i.schedule?.every || 5));
     setFSchedUnit(i.schedule?.unit || "minutes"); setFSchedAtTime(i.schedule?.atTime || "");
     setFSchedMode(i.schedule?.unit === "days" && i.schedule?.atTime ? "daily" : "interval");
+    setFWatchEnabled(!!i.watch?.enabled);
+    setFWatchRecursive(!!i.watch?.recursive);
+    setFWatchDebounce(String((i.watch?.debounceMs ?? 2000) / 1000));
     setFNotifyOn(i.notifications?.on || "none"); setFNotifyEmail(i.notifications?.email || "");
     setFWebhookOn(i.webhook?.on || "none");
     setFWebhookUrl(i.webhook?.url || "");
@@ -245,6 +269,10 @@ export default function IntegrationsPage() {
     const responseFileNaming: FileNaming = preset.mode === "original"
       ? { mode: "original", mask: "" }
       : { mode: "mask", mask: fNamingPreset === CUSTOM_NAMING_IDX ? fNamingMask : preset.mask };
+    const outboundPreset = NAMING_PRESETS[fOutboundNamingPreset];
+    const outboundFileNaming: FileNaming = outboundPreset.mode === "original"
+      ? { mode: "original", mask: "" }
+      : { mode: "mask", mask: fOutboundNamingPreset === CUSTOM_NAMING_IDX ? fOutboundNamingMask : outboundPreset.mask };
     const archivePreset = NAMING_PRESETS[fArchiveNamingPreset];
     const archiveFileNaming: FileNaming = archivePreset.mode === "original"
       ? { mode: "original", mask: "" }
@@ -263,6 +291,7 @@ export default function IntegrationsPage() {
       responseDestinationId: fSaveResponse ? fResponseDestId : "",
       responseSubdirectory: fSaveResponse ? (fResponseSubdir || undefined) : undefined,
       responseFileNaming,
+      outboundFileNaming,
       ftpConnectionId: fFtpEnabled ? fFtpId : "",
       ftpRemotePath: fFtpEnabled ? (fFtpRemotePath || undefined) : undefined,
       deleteSourceAfterRun: fDeleteSource,
@@ -281,6 +310,11 @@ export default function IntegrationsPage() {
             unit: fSchedUnit,
             atTime: fSchedUnit === "days" && fSchedAtTime ? fSchedAtTime : undefined,
           },
+      watch: {
+        enabled: fWatchEnabled,
+        recursive: fWatchRecursive,
+        debounceMs: Math.round((parseFloat(fWatchDebounce) || 2) * 1000),
+      },
       notifications: fNotifyOn !== "none" && fNotifyEmail ? { on: fNotifyOn, email: fNotifyEmail } : { on: "none", email: "" },
       webhook: fWebhookOn !== "none" && fWebhookUrl.trim()
         ? { on: fWebhookOn, url: fWebhookUrl.trim(), secret: fWebhookSecret.trim() || undefined }
@@ -392,7 +426,10 @@ export default function IntegrationsPage() {
                     <td className="font-medium text-text-primary">{i.name}</td>
                     <td className="text-xs">{soapName(i.soapConnectionId)}<span className="text-text-muted"> {soapUrl(i.soapConnectionId)}</span></td>
                     <td className="text-xs">{destName(i.sourceDestinationId)}{i.sourceSubdirectory ? `/${i.sourceSubdirectory}` : ""}</td>
-                    <td className="text-xs">{describeSchedule(i.schedule)}</td>
+                    <td className="text-xs">
+                      {describeSchedule(i.schedule)}
+                      {i.watch?.enabled && <span className="badge badge-info ml-1">watch</span>}
+                    </td>
                     <td className="text-xs">{i.lastRunAt ? new Date(i.lastRunAt).toLocaleString() : "—"}</td>
                     <td>
                       <button onClick={() => toggleEnabled(i)} className={`badge ${i.enabled ? "badge-success" : "badge-danger"}`} style={{ cursor: "pointer" }}>
@@ -484,6 +521,25 @@ export default function IntegrationsPage() {
                     <select className="select" value={fSoapId} onChange={(e) => setFSoapId(e.target.value)}>
                       {soaps.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.url})</option>)}
                     </select>
+                  </div>
+
+                  {/* Outbound file naming — name forwarded with the source file to the SOAP request */}
+                  <div className="p-3 rounded-lg border border-border space-y-3">
+                    <label className="input-label">Outbound File Naming</label>
+                    <p className="text-xs text-text-muted">Names the source file as it is forwarded to the SOAP request. Available in the SOAP envelope template as the <code>{"{FILENAME}"}</code> token and sent as a Content-Disposition header. Pick a timestamp preset or Custom mask to add a timestamp or custom text before sending.</p>
+                    <select className="select" value={fOutboundNamingPreset} onChange={(e) => setFOutboundNamingPreset(parseInt(e.target.value))}>
+                      {NAMING_PRESETS.map((p, i) => <option key={i} value={i}>{p.label}{p.mask ? ` — ${p.mask}` : ""}</option>)}
+                    </select>
+                    {fOutboundNamingPreset === CUSTOM_NAMING_IDX && (
+                      <>
+                        <input className="input mt-2" value={fOutboundNamingMask} onChange={(e) => setFOutboundNamingMask(e.target.value)} placeholder="{ORIGINAL}_{YYYY}{MM}{DD}{HH}{mm}{ss}{EXT}" />
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {FILE_NAMING_TOKENS.map((token) => (
+                            <button key={token} type="button" className="badge badge-muted" onClick={() => insertOutboundToken(token)}>{token}</button>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Optional response save */}
@@ -684,6 +740,27 @@ export default function IntegrationsPage() {
                             )}
                           </>
                         )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Folder watcher */}
+                  <div className="p-3 rounded-lg border border-border space-y-3">
+                    <div className="flex items-center gap-2">
+                      <button className={`toggle ${fWatchEnabled ? "active" : ""}`} onClick={() => setFWatchEnabled(!fWatchEnabled)}><span className="toggle-knob" /></button>
+                      <span className="text-sm font-medium text-text-secondary">Watch source folder and run on new files</span>
+                    </div>
+                    {fWatchEnabled && (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <button className={`toggle ${fWatchRecursive ? "active" : ""}`} onClick={() => setFWatchRecursive(!fWatchRecursive)}><span className="toggle-knob" /></button>
+                          <span className="text-sm text-text-secondary">Include subfolders</span>
+                        </div>
+                        <div>
+                          <label className="input-label">Debounce (seconds)</label>
+                          <input className="input" type="number" min={0.25} step={0.25} value={fWatchDebounce} onChange={(e) => setFWatchDebounce(e.target.value)} />
+                          <p className="text-xs text-text-muted mt-1">Wait this long after the last change before running, so large or batched writes finish first.</p>
+                        </div>
                       </div>
                     )}
                   </div>

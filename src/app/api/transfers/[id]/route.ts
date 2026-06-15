@@ -3,8 +3,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { getTransfers, writeTransfers } from "@/lib/transfers";
 import { getSftpConnectionById } from "@/lib/sftp-connections";
 import { getDestinationById } from "@/lib/destinations";
-import { rescheduleTransfer, unscheduleTransfer } from "@/lib/scheduler";
-import { validateSchedule, normalizeSchedule } from "@/lib/transfer-util";
+import { rescheduleTransfer, unscheduleTransfer, rewatchTransfer, unwatchTransfer } from "@/lib/scheduler";
+import { validateSchedule, normalizeSchedule, normalizeWatch } from "@/lib/transfer-util";
 import { normalizeRetryPolicy } from "@/lib/retry-policy";
 import { auditLog, getRequestIp } from "@/lib/audit";
 
@@ -90,11 +90,13 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     if (!check.valid) return NextResponse.json({ error: check.error }, { status: 400 });
     transfer.schedule = schedule;
   }
+  if (body.watch !== undefined) transfer.watch = normalizeWatch(body.watch);
   transfer.updatedAt = new Date().toISOString();
 
   transfers[idx] = transfer;
   await writeTransfers(transfers);
   await rescheduleTransfer(transfer.id);
+  await rewatchTransfer(transfer.id);
 
   auditLog({
     actor: user.username,
@@ -118,6 +120,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (filtered.length === transfers.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   unscheduleTransfer(id);
+  unwatchTransfer(id);
   await writeTransfers(filtered);
 
   auditLog({
