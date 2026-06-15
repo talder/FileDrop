@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, TestTube, X, Globe } from "lucide-react";
+import { Plus, Pencil, Trash2, TestTube, X, Globe, Copy } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import Sidebar from "@/components/Sidebar";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -72,11 +72,27 @@ export default function SoapConnectionsPage() {
     setShowModal(true);
   };
 
-  const openEdit = (s: SoapRow) => {
-    setEditTarget(s);
+  const fillFormFromConnection = (s: SoapRow) => {
     setFName(s.name); setFUrl(s.url); setFUser(s.username); setFPassword("");
     setFSoapAction(s.soapAction); setFEnvelopeMode(s.envelopeMode); setFTemplate(s.envelopeTemplate || "");
     setFExtractBody(s.extractBody); setFIgnoreTls(s.ignoreTlsErrors);
+  };
+
+  const openEdit = (s: SoapRow) => {
+    setEditTarget(s);
+    fillFormFromConnection(s);
+    setTestResult(null); setFormError("");
+    setShowModal(true);
+  };
+
+  // Duplicate: prefill the create modal from an existing endpoint (no id), so
+  // saving POSTs a brand-new endpoint. The password is never sent to the
+  // client, so it must be re-entered. Name is pre-suffixed to avoid the
+  // server's duplicate-name rejection; the user can adjust before saving.
+  const openDuplicate = (s: SoapRow) => {
+    setEditTarget(null);
+    fillFormFromConnection(s);
+    setFName(`Copy of ${s.name}`);
     setTestResult(null); setFormError("");
     setShowModal(true);
   };
@@ -186,6 +202,7 @@ export default function SoapConnectionsPage() {
                       <div className="flex items-center gap-1">
                         <button className="btn btn-ghost btn-sm" onClick={() => handleTestRow(s)} title="Test"><TestTube className="w-3.5 h-3.5" /></button>
                         <button className="btn btn-ghost btn-sm" onClick={() => openEdit(s)} title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => openDuplicate(s)} title="Duplicate"><Copy className="w-3.5 h-3.5" /></button>
                         <button className="btn btn-ghost btn-sm text-red-500" onClick={() => setDeleteTarget(s)} title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
                     </td>
