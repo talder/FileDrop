@@ -15,7 +15,7 @@ FileDrop is a self-hosted file exchange and automation service built with Next.j
 - **Transfers** for SFTP pull/push automation with selection rules, naming rules, conflict handling, and scheduler support.
 - **Integrations** that read source files, POST to SOAP, optionally save responses locally, optionally deliver to FTP/FTPS, optionally archive or delete source files after success, and optionally post raw bytes to preserve source encoding.
 - **Destinations** backed by Local paths, NFS, or SMB/CIFS (including mount/unmount and accessibility testing).
-- **Local folder browser** for selecting destination paths under `/DATA`.
+- **Local folder browser** for selecting destination paths under `/DATA`, including creating, renaming, and deleting folders.
 - **Remote SFTP browser** for exploring a server's folder tree and picking a transfer's remote path.
 - **API key lifecycle** (generate, scoped access, revoke/delete, optional expiry).
 - **User/session lifecycle** (setup, login/logout, admin-managed users, lockout/unlock, password reset).
@@ -53,7 +53,7 @@ npm start
 |---|---|
 | `/` | Dashboard: daily/total file stats, endpoint/key counts, recent file activity |
 | `/endpoints` | Manage drop endpoints (slug, type, destination, limits, retrieval, notifications, naming) |
-| `/destinations` | Manage local/NFS/SMB destinations, test, mount/unmount, and browse folders under `/DATA` |
+| `/destinations` | Manage local/NFS/SMB destinations, test, mount/unmount, and browse/manage folders under `/DATA` |
 | `/sftp-servers` | Manage reusable outbound SFTP server connections; browse a server's folders |
 | `/transfers` | Manage SFTP transfer jobs (pull/push), schedules, run now, run history; browse the remote path |
 | `/soap-connections` | Manage reusable SOAP endpoint definitions and connection tests |
@@ -149,9 +149,10 @@ Where to find it:
 - **Destination create/edit modal**: `Browse /DATA` next to local path / mount point.
 
 Behavior:
-- Shows directories only.
+- Shows directories (files are listed read-only for context).
 - Supports child navigation, parent navigation, and root jump.
-- Rejects paths outside `/DATA`.
+- Create, rename, and delete folders in place; deleting a folder is recursive and requires typing the folder name to confirm.
+- Rejects paths outside `/DATA` and invalid folder names.
 
 ## Remote SFTP browser
 Browse a saved SFTP server's directory tree to discover and copy remote paths.
@@ -193,6 +194,9 @@ Behavior:
 | `POST` | `/api/destinations/{id}/mount` | Mount NFS/SMB destination |
 | `POST` | `/api/destinations/{id}/unmount` | Unmount NFS/SMB destination |
 | `GET` | `/api/destinations/browse?path=...` | Browse directories under `/DATA` |
+| `POST` | `/api/destinations/folders` | Create a folder (`{parentPath, name}`) under `/DATA` |
+| `PATCH` | `/api/destinations/folders` | Rename a folder (`{path, newName}`) under `/DATA` |
+| `DELETE` | `/api/destinations/folders` | Delete a folder (`{path, recursive}`) under `/DATA` |
 | `GET/POST` | `/api/sftp-connections` | List/create SFTP server connections |
 | `GET/PUT/DELETE` | `/api/sftp-connections/{id}` | Read/update/delete SFTP connection |
 | `POST` | `/api/sftp-connections/{id}/test` | Test SFTP connection (`id=new` supports unsaved values) |

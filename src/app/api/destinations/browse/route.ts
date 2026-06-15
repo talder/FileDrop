@@ -2,12 +2,7 @@ import { NextResponse } from "next/server";
 import { readdir, stat } from "fs/promises";
 import path from "path";
 import { getCurrentUser } from "@/lib/auth";
-
-const DATA_ROOT = path.resolve("/DATA");
-
-function isWithinDataRoot(target: string): boolean {
-  return target === DATA_ROOT || target.startsWith(`${DATA_ROOT}${path.sep}`);
-}
+import { DATA_ROOT, isWithinDataRoot } from "@/lib/data-folders";
 
 export async function GET(request: Request) {
   const user = await getCurrentUser();
