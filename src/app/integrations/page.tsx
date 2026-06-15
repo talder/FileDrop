@@ -22,9 +22,10 @@ const NAMING_PRESETS = [
   { label: "DateTime + Original", mode: "mask" as const, mask: "{YYYY}{MM}{DD}-{HH}{mm}{ss}_{ORIGINAL}{EXT}" },
   { label: "DateTime + UUID", mode: "mask" as const, mask: "{YYYY}{MM}{DD}-{HH}{mm}{ss}_{UUID8}{EXT}" },
   { label: "UUID only", mode: "mask" as const, mask: "{UUID}{EXT}" },
+  { label: "Original + DateTime", mode: "mask" as const, mask: "{ORIGINAL}_{YYYY}{MM}{DD}{HH}{mm}{ss}{EXT}" },
   { label: "Custom", mode: "mask" as const, mask: "" },
 ];
-const CUSTOM_NAMING_IDX = 4;
+const CUSTOM_NAMING_IDX = 5;
 
 interface SoapOption { id: string; name: string; url: string; }
 interface FtpOption { id: string; name: string; host: string; port: number; }
@@ -505,29 +506,6 @@ export default function IntegrationsPage() {
                             <input className="input" value={fResponseSubdir} onChange={(e) => setFResponseSubdir(e.target.value)} placeholder="e.g. responses" />
                           </div>
                         </div>
-                        <div>
-                          <label className="input-label">Response File Naming</label>
-                          <select className="select" value={fNamingPreset} onChange={(e) => setFNamingPreset(parseInt(e.target.value))}>
-                            {NAMING_PRESETS.map((p, i) => <option key={i} value={i}>{p.label}{p.mask ? ` — ${p.mask}` : ""}</option>)}
-                          </select>
-                          {fNamingPreset === CUSTOM_NAMING_IDX && (
-                            <>
-                              <input className="input mt-2" value={fNamingMask} onChange={(e) => setFNamingMask(e.target.value)} placeholder="{YYYY}{MM}{DD}_{ORIGINAL}{EXT}" />
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                {FILE_NAMING_TOKENS.map((token) => (
-                                  <button
-                                    key={token}
-                                    type="button"
-                                    className="badge badge-muted"
-                                    onClick={() => insertNamingToken(token)}
-                                  >
-                                    {token}
-                                  </button>
-                                ))}
-                              </div>
-                            </>
-                          )}
-                        </div>
                       </>
                     )}
                   </div>
@@ -553,6 +531,34 @@ export default function IntegrationsPage() {
                       </div>
                     )}
                   </div>
+
+                  {/* Response file naming — applies to the saved and/or FTP-forwarded response */}
+                  {(fSaveResponse || fFtpEnabled) && (
+                    <div className="p-3 rounded-lg border border-border space-y-3">
+                      <label className="input-label">Response File Naming</label>
+                      <p className="text-xs text-text-muted">Applied to the saved and/or FTP-forwarded response, named from the source file. Choose a timestamp preset or Custom mask so files with the same name do not overwrite each other.</p>
+                      <select className="select" value={fNamingPreset} onChange={(e) => setFNamingPreset(parseInt(e.target.value))}>
+                        {NAMING_PRESETS.map((p, i) => <option key={i} value={i}>{p.label}{p.mask ? ` — ${p.mask}` : ""}</option>)}
+                      </select>
+                      {fNamingPreset === CUSTOM_NAMING_IDX && (
+                        <>
+                          <input className="input mt-2" value={fNamingMask} onChange={(e) => setFNamingMask(e.target.value)} placeholder="{ORIGINAL}_{YYYY}{MM}{DD}{HH}{mm}{ss}{EXT}" />
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {FILE_NAMING_TOKENS.map((token) => (
+                              <button
+                                key={token}
+                                type="button"
+                                className="badge badge-muted"
+                                onClick={() => insertNamingToken(token)}
+                              >
+                                {token}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
 
                   {/* Delete source */}
                   <div className="flex items-center gap-2">
